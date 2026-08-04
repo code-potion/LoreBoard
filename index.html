@@ -1627,15 +1627,17 @@
   </div>
 
   <script>
-    // Initialize Supabase with your project URL and public key
+    
+    // Initialize Supabase with a unique variable name
     const SUPABASE_URL = 'https://tkojiyjerjjonbpctbdn.supabase.co';
     const SUPABASE_ANON_KEY = 'sb_publishable_uwNhh2k46XmY96ZXgs1Tug_J83HEwk2';
 
-    const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+    // We use "supabaseClient" here to avoid clashing with the global "supabase" library
+    const supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
-    // Quick connection test
+    // Updated test function using supabaseClient
     async function testConnection() {
-      const { data, error } = await supabase.from('Cards').select('*');
+      const { data, error } = await supabaseClient.from('Cards').select('*');
   
       if (error) {
         console.error('Error connecting to Supabase:', error.message);
