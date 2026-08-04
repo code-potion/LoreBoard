@@ -1,6 +1,9 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
+  <!-- Supabase JS CDN -->
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Interactive Lore Board v30 - Gallery View, Map & Timeline</title>
@@ -1624,6 +1627,25 @@
   </div>
 
   <script>
+    // Initialize Supabase with your project URL and public key
+    const SUPABASE_URL = 'https://tkojiyjerjjonbpctbdn.supabase.co';
+    const SUPABASE_ANON_KEY = 'sb_publishable_uwNhh2k46XmY96ZXgs1Tug_J83HEwk2';
+
+    const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+    // Quick connection test
+    async function testConnection() {
+      const { data, error } = await supabase.from('Cards').select('*');
+  
+      if (error) {
+        console.error('Error connecting to Supabase:', error.message);
+      } else {
+        console.log('Successfully connected to Supabase! Current cards:', data);
+      }
+    }
+
+    testConnection();
+    
     /* --- INDEXEDDB STORAGE SYSTEM --- */
     const DB_NAME = 'LoreBoardDB';
     const DB_VERSION = 1;
