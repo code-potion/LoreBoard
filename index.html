@@ -1194,6 +1194,107 @@
       gap: 8px;
       margin-top: 4px;
     }
+    /* ==========================================
+       AUTH MODAL STYLES **********
+       ========================================== */
+    .auth-modal-overlay {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100vw;
+      height: 100vh;
+      background-color: rgba(0, 0, 0, 0.75);
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      z-index: 9999; /* Keeps it above canvas and menus */
+    }
+
+    /* Hidden state class to hide the modal once logged in */
+    .auth-modal-overlay.hidden {
+      display: none !important;
+    }
+
+    .auth-modal-card {
+      background: #1e1e24;
+      color: #ffffff;
+      padding: 30px;
+      border-radius: 12px;
+      width: 100%;
+      max-width: 380px;
+      box-shadow: 0 10px 25px rgba(0, 0, 0, 0.5);
+      font-family: sans-serif;
+      text-align: center;
+    }
+
+    .auth-modal-card h2 {
+      margin-top: 0;
+      margin-bottom: 8px;
+      font-size: 1.5rem;
+    }
+
+    .auth-modal-card p {
+      font-size: 0.85rem;
+      color: #aaa;
+      margin-bottom: 20px;
+    }
+
+    .auth-form-group {
+      text-align: left;
+      margin-bottom: 15px;
+    }
+
+    .auth-form-group label {
+      display: block;
+      font-size: 0.8rem;
+      margin-bottom: 5px;
+      color: #ccc;
+    }
+
+    .auth-form-group input {
+      width: 100%;
+      padding: 10px;
+      border-radius: 6px;
+      border: 1px solid #333;
+      background: #121215;
+      color: #fff;
+      box-sizing: border-box;
+    }
+
+    .auth-buttons {
+      display: flex;
+      gap: 10px;
+      margin-top: 20px;
+    }
+
+    .auth-btn {
+      flex: 1;
+      padding: 10px;
+      border-radius: 6px;
+      border: none;
+      cursor: pointer;
+      font-weight: bold;
+    }
+
+    .auth-btn.primary {
+      background-color: #4f46e5;
+      color: white;
+    }
+
+    .auth-btn.secondary {
+      background-color: #374151;
+      color: white;
+    }
+
+    .auth-guest-link {
+      background: none;
+      border: none;
+      color: #888;
+      font-size: 0.8rem;
+      margin-top: 15px;
+      cursor: pointer;
+      text-decoration: underline;
+    }
   </style>
 </head>
 <body>
@@ -1603,6 +1704,31 @@
     </div>
   </div>
 
+  <!-- Auth Modal ********** -->
+  <div id="auth-modal" class="auth-modal-overlay">
+    <div class="auth-modal-card">
+      <h2 id="auth-title">Welcome to Lore Board</h2>
+      <p id="auth-subtitle">Enter a username and password to log in or create an account.</p>
+  
+      <div class="auth-form-group">
+        <label for="auth-username">Username</label>
+        <input type="text" id="auth-username" placeholder="e.g. ShadowWriter" required />
+      </div>
+  
+      <div class="auth-form-group">
+        <label for="auth-password">Password</label>
+        <input type="password" id="auth-password" placeholder="••••••••" required />
+      </div>
+  
+      <div class="auth-buttons">
+        <button id="btn-login" class="auth-btn primary">Log In</button>
+        <button id="btn-signup" class="auth-btn secondary">Sign Up</button>
+      </div>
+  
+      <button id="btn-guest" class="auth-guest-link">Continue as Guest (Read Only)</button>
+    </div>
+  </div>
+
   <!-- CATEGORIES MANAGER MODAL -->
   <div id="category-modal" class="modal-overlay" style="z-index:110;">
     <div class="modal-content" style="width: 500px;">
@@ -1628,7 +1754,7 @@
 
   <script>
     
-    // Initialize Supabase with a unique variable name
+    // Initialize Supabase with a unique variable name **********
     const SUPABASE_URL = 'https://tkojiyjerjjonbpctbdn.supabase.co';
     const SUPABASE_ANON_KEY = 'sb_publishable_uwNhh2k46XmY96ZXgs1Tug_J83HEwk2';
 
@@ -1647,6 +1773,49 @@
     }
 
     testConnection();
+    
+    // ==========================================
+    // SUPABASE AUTHENTICATION HELPERS **********
+    // ==========================================
+
+    // 1. Function to create a new user account
+    async function signUpUser(email, password) {
+      const { data, error } = await supabaseClient.auth.signUp({
+        email: email,
+        password: password
+      });
+
+      if (error) {
+        console.error('Sign up error:', error.message);
+        alert('Sign up failed: ' + error.message);
+      } else {
+        console.log('User signed up successfully:', data.user);
+        alert('Account created! Check your email to confirm, or log in.');
+      }
+    }
+
+    // 2. Function to log in an existing user
+    async function logInUser(email, password) {
+      const { data, error } = await supabaseClient.auth.signInWithPassword({
+        email: email,
+        password: password
+      });
+
+      if (error) {
+        console.error('Login error:', error.message);
+        alert('Login failed: ' + error.message);
+      } else {
+        console.log('User logged in successfully:', data.user);
+        alert('Logged in successfully!');
+      }
+    }
+
+    // 3. Function to log out
+    async function logOutUser() {
+      const { error } = await supabaseClient.auth.signOut();
+      if (error) console.error('Logout error:', error.message);
+      else console.log('Logged out successfully');
+    }
     
     /* --- INDEXEDDB STORAGE SYSTEM --- */
     const DB_NAME = 'LoreBoardDB';
