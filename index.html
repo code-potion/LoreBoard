@@ -1295,6 +1295,21 @@
       cursor: pointer;
       text-decoration: underline;
     }
+    
+    .nav-logout-btn {
+      background-color: #e53e3e; /* Sleek red */
+      color: #ffffff;
+      border: none;
+      padding: 8px 14px;
+      border-radius: 6px;
+      font-weight: bold;
+      cursor: pointer;
+      transition: background-color 0.2s ease;
+    }
+    
+    .nav-logout-btn:hover {
+      background-color: #c53030;
+    }
   </style>
 </head>
 <body>
@@ -1311,6 +1326,7 @@
       <button onclick="openMapModal()" style="background: #10b981; margin-left: 6px;">🗺️ World Map</button>
       <button onclick="openTimelineModal()" style="background: #f59e0b; color: #0f172a; margin-left: 6px; font-weight: bold;">⏳ Timeline</button>
       <button onclick="toggleBookNotesPanel()" style="background: #8b5cf6;">📝 Book Notes & Journal</button>
+      <button id="btn-logout" class="nav-logout-btn">Log Out</button>
     </div>
 
     <!-- GLOBAL SEARCH BAR -->
