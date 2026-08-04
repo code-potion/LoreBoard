@@ -1837,6 +1837,22 @@
         hideAuthModal();
       }
     });
+
+    // 4. LOG OUT **********
+    const logoutBtn = document.getElementById('btn-logout'); // Make sure you have a button with id="btn-logout" in your UI
+    if (logoutBtn) {
+      logoutBtn.addEventListener('click', async () => {
+        const { error } = await supabaseClient.auth.signOut();
+        if (error) {
+          console.error('Error logging out:', error.message);
+        } else {
+          console.log('User logged out');
+          // Optional: clear local card data on logout so a new user starts fresh
+          localStorage.removeItem('lore_board_cards'); 
+          location.reload(); // Reloads page to trigger the Auth Modal again
+        }
+      });
+    }
     
     // 3. CONTINUE AS GUEST
     document.getElementById('btn-guest').addEventListener('click', () => {
