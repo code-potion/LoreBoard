@@ -2188,6 +2188,7 @@
 
     async function loadUserDataFromSupabase() {
       try {
+        // 1. Fetch all boards
         const { data: boardsData, error: boardsError } = await supabaseClient
           .from('Boards')
           .select('*');
@@ -2202,13 +2203,41 @@
           return;
         }
     
+        // 2. Fetch all cards
+        const { data: cardsData, error: cardsError } = await supabaseClient
+          .from('Cards')
+          .select('*');
+    
+        if (cardsError) {
+          console.error("Error fetching cards:", cardsError);
+        }
+    
+        // 3. Populate allBoards object
         allBoards = {};
     
         boardsData.forEach(board => {
+          // Get cards belonging to this board
+          const rawCards = cardsData 
+            ? cardsData.filter(card => card.board_id === board.id)
+            : [];
+    
+          // Map Supabase fields to local card object format
+          const formattedNodes = rawCards.map(c => ({
+            id: c.id,
+            title: c.title || 'Untitled',
+            factions: Array.isArray(c.factions) ? c.factions : [],
+            color: c.color || '#38bdf8',
+            size: c.size || 'medium',
+            notes: c.notes || '',
+            x: c.x ?? 100,
+            y: c.y ?? 100,
+            img: c.img || ''
+          }));
+    
           allBoards[board.id] = {
             id: board.id,
             title: board.title,
-            nodes: [],
+            nodes: formattedNodes,
             connections: [],
             groups: [],
             quotesNote: '',
@@ -2225,7 +2254,7 @@
         renderBoard();
         loadBookNotesIntoPanel();
     
-        console.log("Successfully loaded boards from Supabase:", Object.keys(allBoards).length);
+        console.log("Successfully loaded boards & cards from Supabase!");
       } catch (err) {
         console.error("Unexpected error in loadUserDataFromSupabase:", err);
       }
@@ -3162,19 +3191,20 @@
     }
 
     /* --- CARD CREATION & EDITING MODAL --- */
-    function createNodeFromInput() {
+    async function createNodeFromInput() {
       const title = document.getElementById('node-title').value.trim();
       if (!title) return;
-
+    
       const checkedBoxes = document.querySelectorAll('#node-factions-container input[type="checkbox"]:checked');
       const factions = Array.from(checkedBoxes).map(cb => cb.value);
-
+    
       const color = document.getElementById('node-color').value;
       const notes = document.getElementById('node-notes').value.trim();
       const imgFile = document.getElementById('node-img-file').files[0];
-
+    
       const newNode = {
         id: 'node_' + Date.now(),
+        board_id: activeBoardId, // Link to active board
         title,
         factions: factions.length > 0 ? factions : [],
         color,
@@ -3184,42 +3214,57 @@
         y: (-panY + (window.innerHeight / 2) - 95) / scale,
         img: ''
       };
-
+    
+      const processAndSaveNode = async (nodeToSave) => {
+        // 1. Push locally for immediate UI response
+        getNodes().push(nodeToSave);
+        saveData();
+        renderBoard();
+    
+        // 2. Save to Supabase
+        const { error } = await supabaseClient
+          .from('Cards')
+          .insert([nodeToSave]);
+    
+        if (error) {
+          console.error("Error saving card to Supabase:", error);
+        } else {
+          console.log("Card saved to Supabase successfully!");
+        }
+      };
+    
       if (imgFile) {
         const reader = new FileReader();
-        reader.onload = (e) => {
+        reader.onload = async (e) => {
           newNode.img = e.target.result;
-          getNodes().push(newNode);
-          saveData();
-          renderBoard();
+          await processAndSaveNode(newNode);
         };
         reader.readAsDataURL(imgFile);
       } else {
-        getNodes().push(newNode);
-        saveData();
-        renderBoard();
+        await processAndSaveNode(newNode);
       }
-
+    
+      // Clear modal inputs
       document.getElementById('node-title').value = '';
       document.getElementById('node-notes').value = '';
       document.getElementById('node-img-file').value = '';
       populateCategorySelects();
     }
-
+    
     function openEditModal(nodeId) {
       const node = getNodes().find(n => n.id === nodeId);
       if (!node) return;
-
+    
       const activeFactions = ensureNodeFactions(node);
       populateCategorySelects([], activeFactions);
-
+    
       document.getElementById('edit-node-id').value = node.id;
       document.getElementById('edit-node-title').value = node.title;
       document.getElementById('edit-node-color').value = node.color || '#38bdf8';
       document.getElementById('edit-node-size').value = node.size || 'medium';
       document.getElementById('edit-node-notes').value = node.notes || '';
       document.getElementById('edit-image-preview').src = node.img || '';
-
+    
       const targetSelect = document.getElementById('edit-copy-target');
       targetSelect.innerHTML = '';
       Object.keys(allBoards).forEach(bId => {
@@ -3230,43 +3275,72 @@
           targetSelect.appendChild(opt);
         }
       });
-
+    
       document.getElementById('edit-modal').style.display = 'flex';
     }
-
+    
     function closeEditModal() {
       document.getElementById('edit-modal').style.display = 'none';
     }
-
-    function saveNodeEdit() {
+    
+    async function saveNodeEdit() {
       const id = document.getElementById('edit-node-id').value;
       const node = getNodes().find(n => n.id === id);
       if (!node) return;
-
+    
       const checkedBoxes = document.querySelectorAll('#edit-node-factions-container input[type="checkbox"]:checked');
       const factions = Array.from(checkedBoxes).map(cb => cb.value);
-
+    
       node.title = document.getElementById('edit-node-title').value.trim();
       node.factions = factions;
       node.color = document.getElementById('edit-node-color').value;
       node.size = document.getElementById('edit-node-size').value;
       node.notes = document.getElementById('edit-node-notes').value.trim();
       node.img = document.getElementById('edit-image-preview').src;
-
+    
       saveData();
       renderBoard();
       closeEditModal();
+    
+      // Update in Supabase
+      const { error } = await supabaseClient
+        .from('Cards')
+        .update({
+          title: node.title,
+          factions: node.factions,
+          color: node.color,
+          size: node.size,
+          notes: node.notes,
+          img: node.img
+        })
+        .eq('id', id);
+    
+      if (error) {
+        console.error("Error updating card in Supabase:", error);
+      }
     }
-
-    function deleteCurrentNode() {
+    
+    async function deleteCurrentNode() {
       const id = document.getElementById('edit-node-id').value;
+    
       allBoards[activeBoardId].nodes = getNodes().filter(n => n.id !== id);
       allBoards[activeBoardId].connections = getConnections().filter(c => c.from !== id && c.to !== id);
+    
       saveData();
       renderBoard();
       closeEditModal();
+    
+      // Delete from Supabase
+      const { error } = await supabaseClient
+        .from('Cards')
+        .delete()
+        .eq('id', id);
+    
+      if (error) {
+        console.error("Error deleting card from Supabase:", error);
+      }
     }
-
+    
     function previewNewImage(input) {
       if (input.files && input.files[0]) {
         const reader = new FileReader();
@@ -3276,27 +3350,27 @@
         reader.readAsDataURL(input.files[0]);
       }
     }
-
-    // Preview web image URL in Edit Modal
-    function previewUrlImage(url) {
-      if (url.trim()) {
-        document.getElementById('edit-image-preview').src = url.trim();
-      }
-    }
-
-    function duplicateNodeToBoard() {
-      const id = document.getElementById('edit-node-id').value;
-      const targetBoardId = document.getElementById('edit-copy-target').value;
-      const node = getNodes().find(n => n.id === id);
-
-      if (node && targetBoardId && allBoards[targetBoardId]) {
-        const copy = JSON.parse(JSON.stringify(node));
-        copy.id = 'node_' + Date.now();
-        allBoards[targetBoardId].nodes.push(copy);
-        saveData();
-        alert(`Copied "${node.title}" to ${allBoards[targetBoardId].title}!`);
-      }
-    }
+    
+        // Preview web image URL in Edit Modal
+        function previewUrlImage(url) {
+          if (url.trim()) {
+            document.getElementById('edit-image-preview').src = url.trim();
+          }
+        }
+    
+        function duplicateNodeToBoard() {
+          const id = document.getElementById('edit-node-id').value;
+          const targetBoardId = document.getElementById('edit-copy-target').value;
+          const node = getNodes().find(n => n.id === id);
+    
+          if (node && targetBoardId && allBoards[targetBoardId]) {
+            const copy = JSON.parse(JSON.stringify(node));
+            copy.id = 'node_' + Date.now();
+            allBoards[targetBoardId].nodes.push(copy);
+            saveData();
+            alert(`Copied "${node.title}" to ${allBoards[targetBoardId].title}!`);
+          }
+        }
 
     /* --- CONNECTION EDIT MODAL --- */
     function openConnectionModal(connId) {
