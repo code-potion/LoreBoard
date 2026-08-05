@@ -1880,6 +1880,12 @@
       hideAuthModal();
     });
     
+    // 3. EventListener
+    document.addEventListener('DOMContentLoaded', async () => {
+      // Load database content on startup
+      await loadUserDataFromSupabase();
+    });
+    
     // Helper function to hide the popup modal
     function hideAuthModal() {
       const modal = document.getElementById('auth-modal');
@@ -2177,6 +2183,51 @@
       } catch (err) {
         console.error("Unexpected error in createNewBoard:", err);
         alert("Unexpected error: " + err.message);
+      }
+    }
+
+    async function loadUserDataFromSupabase() {
+      try {
+        const { data: boardsData, error: boardsError } = await supabaseClient
+          .from('Boards')
+          .select('*');
+    
+        if (boardsError) {
+          console.error("Error fetching boards:", boardsError);
+          return;
+        }
+    
+        if (!boardsData || boardsData.length === 0) {
+          console.log("No boards found in Supabase.");
+          return;
+        }
+    
+        allBoards = {};
+    
+        boardsData.forEach(board => {
+          allBoards[board.id] = {
+            id: board.id,
+            title: board.title,
+            nodes: [],
+            connections: [],
+            groups: [],
+            quotesNote: '',
+            generalNote: '',
+            mapImage: '',
+            mapPins: [],
+            timelineEvents: []
+          };
+        });
+    
+        activeBoardId = boardsData[0].id;
+    
+        renderBoardDropdown();
+        renderBoard();
+        loadBookNotesIntoPanel();
+    
+        console.log("Successfully loaded boards from Supabase:", Object.keys(allBoards).length);
+      } catch (err) {
+        console.error("Unexpected error in loadUserDataFromSupabase:", err);
       }
     }
     
