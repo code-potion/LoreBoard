@@ -2097,23 +2097,33 @@
     
         const trimmedTitle = title.trim();
     
-        // 1. Get current user (compatible with Supabase v1 and v2)
-        const user = supabase.auth.user ? supabase.auth.user() : (await supabase.auth.getUser())?.data?.user;
-    
-        if (!user) {
-          alert("You must be logged in to create a board.");
+        // Check if client is initialized
+        if (typeof supabaseClient === 'undefined') {
+          alert("supabaseClient is not initialized on this page!");
           return;
         }
     
-        // 2. Insert board into Supabase table
-        const { data, error } = await supabase
+        // Get current user safely using supabaseClient
+        let user = null;
+        if (supabaseClient.auth) {
+          if (typeof supabaseClient.auth.user === 'function') {
+            user = supabaseClient.auth.user();
+          } else if (typeof supabaseClient.auth.getUser === 'function') {
+            const { data } = await supabaseClient.auth.getUser();
+            user = data?.user;
+          }
+        }
+    
+        // Insert board row into Supabase 'boards' table
+        const { data, error } = await supabaseClient
           .from('boards')
           .insert([
             {
               title: trimmedTitle,
-              user_id: user.id
+              ...(user && { user_id: user.id })
             }
-          ]);
+          ])
+          .select();
     
         if (error) {
           console.error("Supabase insert error:", error);
@@ -2125,7 +2135,7 @@
         const createdBoard = Array.isArray(data) ? data[0] : data;
         const newBoardId = createdBoard ? createdBoard.id : 'board_' + Date.now();
     
-        // 3. Add to local state & switch view
+        // Update in-memory state
         allBoards[newBoardId] = {
           id: newBoardId,
           title: trimmedTitle,
@@ -2144,13 +2154,13 @@
         renderBoard();
         loadBookNotesIntoPanel();
     
-        console.log("Board successfully created!", createdBoard);
+        console.log("Board successfully created in Supabase!", createdBoard);
       } catch (err) {
         console.error("Unexpected error in createNewBoard:", err);
         alert("Unexpected error: " + err.message);
       }
     }
-
+    
     function deleteCurrentBoard() {
       const boardKeys = Object.keys(allBoards);
       if (boardKeys.length <= 1) {
