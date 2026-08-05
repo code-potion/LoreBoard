@@ -2078,15 +2078,34 @@
       loadBookNotesIntoPanel();
     }
 
-    function renameCurrentBoard() {
-      const currentTitle = allBoards[activeBoardId].title;
+    async function renameCurrentBoard() {
+      const currentTitle = allBoards[activeBoardId]?.title || "";
       const newTitle = prompt("Edit Title for Current Board:", currentTitle);
       
       if (newTitle && newTitle.trim() !== '') {
-        allBoards[activeBoardId].title = newTitle.trim();
+        const trimmedTitle = newTitle.trim();
+    
+        // 1. Update local state immediately for UI responsiveness
+        allBoards[activeBoardId].title = trimmedTitle;
         renderBoardDropdown();
         loadBookNotesIntoPanel();
-        saveData();
+    
+        // 2. Update Supabase database
+        try {
+          const { error } = await supabaseClient
+            .from('Boards')
+            .update({ title: trimmedTitle })
+            .eq('id', activeBoardId);
+    
+          if (error) {
+            console.error("Error updating board title in Supabase:", error);
+            alert("Failed to save renamed title to database: " + error.message);
+          } else {
+            console.log(`Board ${activeBoardId} successfully renamed to "${trimmedTitle}" in Supabase.`);
+          }
+        } catch (err) {
+          console.error("Unexpected error in renameCurrentBoard:", err);
+        }
       }
     }
 
@@ -2161,19 +2180,45 @@
       }
     }
     
-    function deleteCurrentBoard() {
+    async function deleteCurrentBoard() {
       const boardKeys = Object.keys(allBoards);
       if (boardKeys.length <= 1) {
         alert("You must keep at least one book board!");
         return;
       }
-      if (confirm(`Are you sure you want to delete "${allBoards[activeBoardId].title}"?`)) {
-        delete allBoards[activeBoardId];
-        activeBoardId = Object.keys(allBoards)[0];
+    
+      const boardToDeleteId = activeBoardId;
+      const boardTitle = allBoards[boardToDeleteId]?.title || "this board";
+    
+      if (confirm(`Are you sure you want to delete "${boardTitle}"?`)) {
+        // 1. Switch active board locally first
+        const remainingKeys = boardKeys.filter(id => id !== boardToDeleteId);
+        activeBoardId = remainingKeys[0];
+    
+        // 2. Remove deleted board from local memory
+        delete allBoards[boardToDeleteId];
+    
+        // 3. Update UI
         renderBoardDropdown();
         renderBoard();
         loadBookNotesIntoPanel();
-        saveData();
+    
+        // 4. Delete row from Supabase
+        try {
+          const { error } = await supabaseClient
+            .from('Boards')
+            .delete()
+            .eq('id', boardToDeleteId);
+    
+          if (error) {
+            console.error("Error deleting board from Supabase:", error);
+            alert("Failed to delete board from database: " + error.message);
+          } else {
+            console.log(`Board ${boardToDeleteId} successfully deleted from Supabase.`);
+          }
+        } catch (err) {
+          console.error("Unexpected error in deleteCurrentBoard:", err);
+        }
       }
     }
 
