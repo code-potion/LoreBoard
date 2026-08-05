@@ -3485,8 +3485,21 @@
 
     /* --- WORLD MAP LOGIC --- */
     function openMapModal() {
-      document.getElementById('map-modal').style.display = 'flex';
-      renderMap();
+      const mapModal = document.getElementById('map-modal');
+      const mapImg = document.getElementById('map-image');
+    
+      // Check where your board data is stored
+      const currentBoard = (typeof activeBoard !== 'undefined' && activeBoard) 
+                            ? activeBoard 
+                            : (typeof boards !== 'undefined' && typeof currentBoardId !== 'undefined' ? boards[currentBoardId] : null);
+    
+      if (mapImg && currentBoard && currentBoard.mapUrl) {
+        mapImg.src = currentBoard.mapUrl;
+        const deleteBtn = document.getElementById('delete-map-btn');
+        if (deleteBtn) deleteBtn.style.display = 'inline-block';
+      }
+    
+      if (mapModal) mapModal.style.display = 'flex';
     }
 
     function closeMapModal() {
@@ -3508,16 +3521,34 @@
     function loadMapFromUrlPrompt() {
       const url = prompt("Enter High-Res World Map Image URL:");
       if (url && url.trim()) {
+        const cleanUrl = url.trim();
+        
+        // 1. Update the image on screen
         const mapImg = document.getElementById('map-image');
         if (mapImg) {
-          mapImg.src = url.trim();
-          // Show the delete button if hidden
-          const deleteBtn = document.getElementById('delete-map-btn');
-          if (deleteBtn) deleteBtn.style.display = 'inline-block';
+          mapImg.src = cleanUrl;
         }
+    
+        // 2. Save the URL to your current active board's data object
+        if (typeof activeBoard !== 'undefined' && activeBoard) {
+          activeBoard.mapUrl = cleanUrl;
+        } else if (typeof boards !== 'undefined' && typeof currentBoardId !== 'undefined' && boards[currentBoardId]) {
+          boards[currentBoardId].mapUrl = cleanUrl;
+        }
+    
+        // 3. Save to local storage so re-opening the map keeps it
+        if (typeof saveBoardsToLocalStorage === 'function') {
+          saveBoardsToLocalStorage();
+        } else if (typeof saveState === 'function') {
+          saveState();
+        }
+    
+        // 4. Show the delete button
+        const deleteBtn = document.getElementById('delete-map-btn');
+        if (deleteBtn) deleteBtn.style.display = 'inline-block';
       }
     }
-
+    
     function deleteActiveMap() {
       if (confirm("Delete map image and cleared pins?")) {
         allBoards[activeBoardId].mapImage = '';
