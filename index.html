@@ -2776,10 +2776,19 @@
       window.addEventListener('mouseup', async () => {
         if (isDraggingCard) {
           isDraggingCard = false;
-          saveData(); // Local backup
+          saveData();
           
-          // Save new coordinates to Supabase
-          await updateNodePositionInSupabase(node.id, node.x, node.y);
+          // Update coordinates directly in Supabase here!
+          try {
+            const { error } = await supabaseClient
+              .from('Cards')
+              .update({ x: node.x, y: node.y })
+              .eq('id', node.id);
+    
+            if (error) console.error("Error updating position in Supabase:", error);
+          } catch (err) {
+            console.error("Failed to update position:", err);
+          }
         }
       });
     }
