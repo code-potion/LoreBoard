@@ -2229,8 +2229,8 @@
             color: c.color || '#38bdf8',
             size: c.size || 'medium',
             notes: c.notes || '',
-            x: c.x ?? 100,
-            y: c.y ?? 100,
+            x: c.x !== null && c.x !== undefined ? parseFloat(c.x) : 100,
+            y: c.y !== null && c.y !== undefined ? parseFloat(c.y) : 100,
             img: c.img || ''
           }));
     
@@ -2749,10 +2749,10 @@
     function makeDraggable(element, node) {
       let isDraggingCard = false;
       let startX, startY, initialX, initialY;
-
+    
       element.addEventListener('mousedown', (e) => {
         if (e.target.tagName === 'TEXTAREA' || e.target.tagName === 'INPUT' || e.target.classList.contains('mention-tag')) return;
-
+    
         isDraggingCard = true;
         startX = e.clientX;
         startY = e.clientY;
@@ -2760,7 +2760,7 @@
         initialY = node.y;
         e.stopPropagation();
       });
-
+    
       window.addEventListener('mousemove', (e) => {
         if (!isDraggingCard) return;
         const dx = (e.clientX - startX) / scale;
@@ -2771,11 +2771,14 @@
         element.style.top = `${node.y}px`;
         renderConnections();
       });
-
-      window.addEventListener('mouseup', () => {
+    
+      window.addEventListener('mouseup', async () => {
         if (isDraggingCard) {
           isDraggingCard = false;
-          saveData();
+          saveData(); // Local backup
+          
+          // Save new coordinates to Supabase
+          await updateNodePositionInSupabase(node.id, node.x, node.y);
         }
       });
     }
