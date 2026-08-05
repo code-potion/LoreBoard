@@ -2116,7 +2116,7 @@
     
         // Insert board row into Supabase 'boards' table
         const { data, error } = await supabaseClient
-          .from('boards')
+          .from('Boards')
           .insert([
             {
               title: trimmedTitle,
