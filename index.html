@@ -2097,22 +2097,15 @@
     
         const trimmedTitle = title.trim();
     
-        // Check if Supabase client exists
-        if (typeof supabase === 'undefined') {
-          alert("Supabase client is not initialized! Check your script tags.");
+        // 1. Get current user (compatible with Supabase v1 and v2)
+        const user = supabase.auth.user ? supabase.auth.user() : (await supabase.auth.getUser())?.data?.user;
+    
+        if (!user) {
+          alert("You must be logged in to create a board.");
           return;
         }
     
-        // Get current logged-in user
-        const { data: { user }, error: userError } = await supabase.auth.getUser();
-    
-        if (userError || !user) {
-          console.error("Auth error:", userError);
-          alert("You must be logged in to create a board in Supabase.");
-          return;
-        }
-    
-        // Insert board row
+        // 2. Insert board into Supabase table
         const { data, error } = await supabase
           .from('boards')
           .insert([
@@ -2120,9 +2113,7 @@
               title: trimmedTitle,
               user_id: user.id
             }
-          ])
-          .select()
-          .single();
+          ]);
     
         if (error) {
           console.error("Supabase insert error:", error);
@@ -2130,11 +2121,14 @@
           return;
         }
     
-        // Success! Update local state
-        const newBoardId = data.id;
+        // Grab inserted record
+        const createdBoard = Array.isArray(data) ? data[0] : data;
+        const newBoardId = createdBoard ? createdBoard.id : 'board_' + Date.now();
+    
+        // 3. Add to local state & switch view
         allBoards[newBoardId] = {
           id: newBoardId,
-          title: data.title,
+          title: trimmedTitle,
           nodes: [],
           connections: [],
           groups: [],
@@ -2150,7 +2144,7 @@
         renderBoard();
         loadBookNotesIntoPanel();
     
-        console.log("Board successfully created in Supabase:", data);
+        console.log("Board successfully created!", createdBoard);
       } catch (err) {
         console.error("Unexpected error in createNewBoard:", err);
         alert("Unexpected error: " + err.message);
