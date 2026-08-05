@@ -1528,6 +1528,7 @@
           <button onclick="resetMapView()" style="background: #334155; font-size: 0.8rem;">🎯 Reset View</button>
           <input type="file" id="map-image-input" accept="image/*" style="display: none;" onchange="handleMapUpload(this)" />
           <button onclick="document.getElementById('map-image-input').click()" style="background: #0284c7; font-size: 0.8rem;">📷 Upload Map</button>
+          <button onclick="loadMapFromUrlPrompt()" style="background: #0284c7; font-size: 0.8rem;">🔗 Map URL</button>
           <button id="delete-map-btn" onclick="deleteActiveMap()" class="btn-danger" style="font-size: 0.8rem; display: none;">🗑️ Delete Map</button>
           <button onclick="closeMapModal()" style="background: #475569;">Close</button>
         </div>
@@ -3501,6 +3502,19 @@
           renderMap();
         };
         reader.readAsDataURL(input.files[0]);
+      }
+    }
+
+    function loadMapFromUrlPrompt() {
+      const url = prompt("Enter High-Res World Map Image URL:");
+      if (url && url.trim()) {
+        const mapImg = document.getElementById('map-image');
+        if (mapImg) {
+          mapImg.src = url.trim();
+          // Show the delete button if hidden
+          const deleteBtn = document.getElementById('delete-map-btn');
+          if (deleteBtn) deleteBtn.style.display = 'inline-block';
+        }
       }
     }
 
