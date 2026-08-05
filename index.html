@@ -2255,6 +2255,7 @@
         loadBookNotesIntoPanel();
     
         console.log("Successfully loaded boards & cards from Supabase!");
+        console.log("Raw cards loaded from Supabase:", cardsData);
       } catch (err) {
         console.error("Unexpected error in loadUserDataFromSupabase:", err);
       }
