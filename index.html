@@ -3214,6 +3214,9 @@
       const color = document.getElementById('node-color').value;
       const notes = document.getElementById('node-notes').value.trim();
       const imgFile = document.getElementById('node-img-file').files[0];
+
+      const imgUrlInput = document.getElementById('node-img-url'); 
+      const imgUrl = imgUrlInput ? imgUrlInput.value.trim() : '';
     
       const newNode = {
         id: 'node_' + Date.now(),
@@ -3225,7 +3228,7 @@
         notes,
         x: (-panX + (window.innerWidth / 2) - 95) / scale,
         y: (-panY + (window.innerHeight / 2) - 95) / scale,
-        img: ''
+        img: imgUrl
       };
     
       const processAndSaveNode = async (nodeToSave) => {
