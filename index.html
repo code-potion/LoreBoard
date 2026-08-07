@@ -2218,6 +2218,15 @@
         if (cardsError) {
           console.error("Error fetching cards:", cardsError);
         }
+
+        // NEW STEP: Fetch all connections from Supabase
+        const { data: connectionsData, error: connectionsError } = await supabaseClient
+          .from('Connections')
+          .select('*');
+
+        if (connectionsError) {
+          console.error("Error fetching connections:", connectionsError);
+        }
     
         // 3. Populate allBoards object
         allBoards = {};
@@ -2240,12 +2249,27 @@
             y: c.y !== null && c.y !== undefined ? parseFloat(c.y) : 100,
             img: c.img || ''
           }));
+
+          // NEW STEP: Filter and map connections belonging to this board
+          const rawConnections = connectionsData
+            ? connectionsData.filter(conn => conn.board_id === board.id)
+            : [];
+
+          const formattedConnections = rawConnections.map(c => ({
+            id: c.id,
+            from: c.from,
+            to: c.to,
+            label: c.label || '',
+            color: c.color || '#ec4899',
+            style: c.style || 'dashed',
+            width: c.width || '4'
+          }));
     
           allBoards[board.id] = {
             id: board.id,
             title: board.title,
             nodes: formattedNodes,
-            connections: [],
+            connections: formattedConnections, // Injected the live cloud connections here!
             groups: [],
             quotesNote: '',
             generalNote: '',
@@ -2261,8 +2285,7 @@
         renderBoard();
         loadBookNotesIntoPanel();
     
-        console.log("Successfully loaded boards & cards from Supabase!");
-        console.log("Raw cards loaded from Supabase:", cardsData);
+        console.log("Successfully loaded boards, cards & connections from Supabase!");
       } catch (err) {
         console.error("Unexpected error in loadUserDataFromSupabase:", err);
       }
@@ -2840,7 +2863,7 @@
       renderBoard();
     }
 
-    function connectSelectedNodes() {
+    async function connectSelectedNodes() {
       if (selectedNodes.length !== 2) {
         alert("Select exactly 2 cards to create a link.");
         return;
@@ -2848,9 +2871,9 @@
       const [from, to] = selectedNodes;
       const connections = getConnections();
       const exists = connections.some(c => (c.from === from && c.to === to) || (c.from === to && c.to === from));
-
+    
       if (!exists) {
-        connections.push({
+        const newConnection = {
           id: 'conn_' + Date.now(),
           from,
           to,
@@ -2858,22 +2881,58 @@
           color: '#ec4899',
           style: 'dashed',
           width: '4'
-        });
+        };
+    
+        // 1. Save Locally
+        connections.push(newConnection);
         saveData();
+        renderConnections(); // Force redraw on creation
+    
+        // 2. Save to Supabase
+        const { error } = await supabaseClient
+          .from('Connections')
+          .insert([{
+            id: newConnection.id,
+            board_id: activeBoardId,
+            from: newConnection.from,
+            to: newConnection.to,
+            label: newConnection.label,
+            color: newConnection.color,
+            style: newConnection.style,
+            width: newConnection.width
+          }]);
+    
+        if (error) console.error("Error saving connection to Supabase:", error);
       }
       clearSelection();
     }
 
-    function removeSelectedConnection() {
+    async function removeSelectedConnection() {
       if (selectedNodes.length !== 2) {
         alert("Select 2 linked cards to remove their connection.");
         return;
       }
       const [from, to] = selectedNodes;
-      allBoards[activeBoardId].connections = getConnections().filter(c => 
-        !((c.from === from && c.to === to) || (c.from === to && c.to === from))
+      
+      // Find the targeted connection before removing it locally
+      const targetConnection = getConnections().find(c => 
+        ((c.from === from && c.to === to) || (c.from === to && c.to === from))
       );
-      saveData();
+    
+      if (targetConnection) {
+        // 1. Update Locally
+        allBoards[activeBoardId].connections = getConnections().filter(c => c.id !== targetConnection.id);
+        saveData();
+        renderConnections();
+    
+        // 2. Delete from Supabase
+        const { error } = await supabaseClient
+          .from('Connections')
+          .delete()
+          .eq('id', targetConnection.id);
+    
+        if (error) console.error("Error deleting connection from Supabase:", error);
+      }
       clearSelection();
     }
 
@@ -3421,11 +3480,12 @@
       document.getElementById('connection-modal').style.display = 'none';
     }
 
-    function saveConnectionStyle() {
+    async function saveConnectionStyle() {
       const id = document.getElementById('edit-conn-id').value;
       const conn = getConnections().find(c => c.id === id);
       if (!conn) return;
 
+      // 1. Update Local Object
       conn.label = document.getElementById('edit-conn-label').value.trim();
       conn.color = document.getElementById('edit-conn-color').value;
       conn.style = document.getElementById('edit-conn-style').value;
@@ -3434,14 +3494,48 @@
       saveData();
       renderConnections();
       closeConnectionModal();
+
+      // 2. Sync Update to Supabase
+      const { error } = await supabaseClient
+        .from('Connections')
+        .upsert([{
+          id: conn.id,
+          board_id: activeBoardId,
+          from: conn.from,
+          to: conn.to,
+          label: conn.label,
+          color: conn.color,
+          style: conn.style,
+          width: conn.width
+        }]);
+
+      if (error) {
+        console.error("Error updating connection in Supabase:", error);
+      } else {
+        console.log("Connection updated in Supabase successfully!");
+      }
     }
 
-    function deleteCurrentConnection() {
+    async function deleteCurrentConnection() {
       const id = document.getElementById('edit-conn-id').value;
+      
+      // 1. Update Locally
       allBoards[activeBoardId].connections = getConnections().filter(c => c.id !== id);
       saveData();
       renderConnections();
       closeConnectionModal();
+
+      // 2. Delete from Supabase
+      const { error } = await supabaseClient
+        .from('Connections')
+        .delete()
+        .eq('id', id);
+
+      if (error) {
+        console.error("Error deleting connection from Supabase:", error);
+      } else {
+        console.log("Connection deleted from Supabase successfully!");
+      }
     }
 
     /* --- BOOK NOTES PANEL LOGIC --- */
