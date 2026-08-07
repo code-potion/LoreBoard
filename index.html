@@ -2250,9 +2250,9 @@
             img: c.img || ''
           }));
 
-          // NEW STEP: Filter and map connections belonging to this board
+          // NEW STEP: Filter and map connections belonging to this board   Added --> // --- CHANGE THIS FILTER LINE TO USE String() ---
           const rawConnections = connectionsData
-            ? connectionsData.filter(conn => conn.board_id === board.id)
+            ? connectionsData.filter(conn => String(conn.board_id) === String(board.id))
             : [];
 
           const formattedConnections = rawConnections.map(c => ({
