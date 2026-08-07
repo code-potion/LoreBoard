@@ -2284,6 +2284,12 @@
         renderBoardDropdown();
         renderBoard();
         loadBookNotesIntoPanel();
+
+        // ADD THIS HACK HERE: Force a secondary redraw once the DOM settles
+        setTimeout(() => {
+          renderConnections();
+          console.log("Delayed connection redraw executed.");
+        }, 100);
     
         console.log("Successfully loaded boards, cards & connections from Supabase!");
       } catch (err) {
