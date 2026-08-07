@@ -2944,6 +2944,33 @@
 
     function renderConnections() {
       const svg = document.getElementById('connections-svg');
+      if (!svg) {
+        console.warn("⚠️ Connections rendering skipped: #connections-svg element not found in DOM.");
+        return;
+      }
+      svg.innerHTML = '';
+
+      const currentConnections = getConnections();
+      console.log("🔍 System checking connections data:", currentConnections);
+
+      currentConnections.forEach(conn => {
+        const fromNode = getNodes().find(n => n.id === conn.from);
+        const toNode = getNodes().find(n => n.id === conn.to);
+        
+        if (!fromNode || !toNode) {
+          console.warn(`⚠️ Connection ${conn.id} skipped: Missing card data. From: ${fromNode}, To: ${toNode}`);
+          return;
+        }
+
+        const fromEl = document.getElementById(`node-${fromNode.id}`);
+        const toEl = document.getElementById(`node-${toNode.id}`);
+        
+        if (!fromEl || !toEl) {
+          console.warn(`⚠️ Connection ${conn.id} skipped: HTML elements not found in DOM yet.`);
+          return;
+        } //delete this later ^
+      
+      const svg = document.getElementById('connections-svg');
       svg.innerHTML = '';
 
       getConnections().forEach(conn => {
