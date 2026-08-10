@@ -2824,87 +2824,112 @@
       const canvas = document.getElementById('board-canvas');
       const svg = document.getElementById('connections-svg');
 
+      if (!canvas || !svg) return;
+
       canvas.querySelectorAll('.node-card, .group-container').forEach(e => e.remove());
       svg.innerHTML = '';
 
-      getGroups().forEach(group => {
-        const groupEl = document.createElement('div');
-        groupEl.className = 'group-container';
-        groupEl.id = `group-${group.id}`;
-        groupEl.style.left = `${group.x}px`;
-        groupEl.style.top = `${group.y}px`;
-        groupEl.style.width = `${group.width}px`;
-        groupEl.style.height = `${group.height}px`;
-        groupEl.style.borderColor = group.color || '#0284c7';
-        groupEl.style.backgroundColor = `${group.color || '#0284c7'}15`;
+      // 1. Render Group Elements
+      if (typeof getGroups === 'function') {
+        getGroups().forEach(group => {
+          const groupEl = document.createElement('div');
+          groupEl.className = 'group-container';
+          groupEl.id = `group-${group.id}`;
+          groupEl.style.left = `${group.x}px`;
+          groupEl.style.top = `${group.y}px`;
+          groupEl.style.width = `${group.width}px`;
+          groupEl.style.height = `${group.height}px`;
+          groupEl.style.borderColor = group.color || '#0284c7';
+          groupEl.style.backgroundColor = `${group.color || '#0284c7'}15`;
 
-        const header = document.createElement('div');
-        header.className = 'group-header';
-        header.style.backgroundColor = group.color || '#0284c7';
-        header.textContent = group.title;
+          const header = document.createElement('div');
+          header.className = 'group-header';
+          header.style.backgroundColor = group.color || '#0284c7';
+          header.textContent = group.title;
 
-        const resizeHandle = document.createElement('div');
-        resizeHandle.className = 'group-resize-handle';
+          const resizeHandle = document.createElement('div');
+          resizeHandle.className = 'group-resize-handle';
 
-        groupEl.appendChild(header);
-        groupEl.appendChild(resizeHandle);
+          groupEl.appendChild(header);
+          groupEl.appendChild(resizeHandle);
 
-        makeGroupDraggableAndResizable(groupEl, group);
+          if (typeof makeGroupDraggableAndResizable === 'function') {
+            makeGroupDraggableAndResizable(groupEl, group);
+          }
 
-        groupEl.addEventListener('dblclick', (e) => {
-          e.stopPropagation();
-          openGroupEditModal(group.id);
+          groupEl.addEventListener('dblclick', (e) => {
+            e.stopPropagation();
+            if (typeof openGroupEditModal === 'function') openGroupEditModal(group.id);
+          });
+
+          canvas.appendChild(groupEl);
         });
+      }
 
-        canvas.appendChild(groupEl);
-      });
+      // 2. Render Card Elements
+      if (typeof getNodes === 'function') {
+        getNodes().forEach(node => {
+          const card = document.createElement('div');
+          const sizeClass = node.size ? `size-${node.size}` : 'size-medium';
+          card.className = `node-card ${sizeClass} ${selectedNodes.includes(node.id) ? 'selected' : ''}`;
+          card.id = `node-${node.id}`;
+          card.style.left = `${node.x}px`;
+          card.style.top = `${node.y}px`;
+          card.style.borderColor = node.color || '#38bdf8';
 
-      getNodes().forEach(node => {
-        const card = document.createElement('div');
-        const sizeClass = node.size ? `size-${node.size}` : 'size-medium';
-        card.className = `node-card ${sizeClass} ${selectedNodes.includes(node.id) ? 'selected' : ''}`;
-        card.id = `node-${node.id}`;
-        card.style.left = `${node.x}px`;
-        card.style.top = `${node.y}px`;
-        card.style.borderColor = node.color || '#38bdf8';
+          const nodeFactions = typeof ensureNodeFactions === 'function' ? ensureNodeFactions(node) : (node.factions || []);
+          let tagsHTML = '';
 
-        const nodeFactions = ensureNodeFactions(node);
-        let tagsHTML = '';
+          if (nodeFactions.length > 0 && Array.isArray(categories)) {
+            tagsHTML = nodeFactions.map(fId => {
+              const cat = categories.find(c => c.id === fId) || { name: 'General', color: '#334155' };
+              return `<span class="node-tag" style="background-color: ${cat.color};">${cat.name}</span>`;
+            }).join('');
+          } else {
+            tagsHTML = `<span class="node-tag">General</span>`;
+          }
 
-        if (nodeFactions.length > 0) {
-          tagsHTML = nodeFactions.map(fId => {
-            const cat = categories.find(c => c.id === fId) || { name: 'General', color: '#334155' };
-            return `<span class="node-tag" style="background-color: ${cat.color};">${cat.name}</span>`;
-          }).join('');
-        } else {
-          tagsHTML = `<span class="node-tag">General</span>`;
-        }
+          // Safe inline link generation for card content bodies
+          let formattedCardNotes = node.notes || '';
+          if (formattedCardNotes) {
+            const escapeHTML = str => str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+            formattedCardNotes = escapeHTML(formattedCardNotes)
+              .replace(/\n/g, '<br>')
+              .replace(/@\[([^\]]+)\]|@([a-zA-Z0-9_\-]+)/g, (match, bracketName, simpleName) => {
+                const name = (bracketName || simpleName || '').trim();
+                return `<span style="color: #10b981; text-decoration: underline; font-weight: 600;">@${name}</span>`;
+              });
+          }
 
-        const formattedCardNotes = formatMentionsToHTML(node.notes || '');
+          card.innerHTML = `
+            ${node.img ? `<img src="${node.img}" class="node-avatar" />` : ''}
+            <div class="node-header">${node.title}</div>
+            <div class="node-tags-wrapper">${tagsHTML}</div>
+            ${node.notes ? `<div class="node-notes">${formattedCardNotes}</div>` : ''}
+          `;
 
-        card.innerHTML = `
-          ${node.img ? `<img src="${node.img}" class="node-avatar" />` : ''}
-          <div class="node-header">${node.title}</div>
-          <div class="node-tags-wrapper">${tagsHTML}</div>
-          ${node.notes ? `<div class="node-notes">${formattedCardNotes}</div>` : ''}
-        `;
+          if (typeof makeDraggable === 'function') {
+            makeDraggable(card, node);
+          }
 
-        makeDraggable(card, node);
+          card.addEventListener('click', (e) => {
+            e.stopPropagation();
+            if (typeof toggleSelectNode === 'function') toggleSelectNode(node.id);
+          });
 
-        card.addEventListener('click', (e) => {
-          e.stopPropagation();
-          toggleSelectNode(node.id);
+          card.addEventListener('dblclick', (e) => {
+            e.stopPropagation();
+            if (typeof openEditModal === 'function') openEditModal(node.id);
+          });
+
+          canvas.appendChild(card);
         });
+      }
 
-        card.addEventListener('dblclick', (e) => {
-          e.stopPropagation();
-          openEditModal(node.id);
-        });
-
-        canvas.appendChild(card);
-      });
-
-      renderConnections();
+      // 3. Draw Links Pipeline
+      if (typeof renderConnections === 'function') {
+        renderConnections();
+      }
     }
 
     /* --- STABLE DRAG SYSTEM --- */
