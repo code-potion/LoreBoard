@@ -2585,11 +2585,12 @@
       
       const escapeHTML = str => str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
       
-      // Regex that matches either @[Multi Word Name] or @SimpleName
-      const mentionRegex = /@\[([^\]]+)\]|@([a-zA-Z0-9_\-]+)/g;
+      // Multi-word regex: Matches either @[Bracketed Name] OR @Name followed by words separated by single spaces
+      const mentionRegex = /@\[([^\]]+)\]|@([a-zA-Z0-9_\-]+(?:\s+[a-zA-Z0-9_\-]+)*)/g;
 
       // We escape the HTML structure first so formatting code stays safe
-      const escapedText = escapeHTML(text);
+      // and convert newlines to line breaks for contenteditable support
+      const escapedText = escapeHTML(text).replace(/\n/g, '<br>');
 
       return escapedText.replace(mentionRegex, (match, bracketName, simpleName) => {
         const name = (bracketName || simpleName || '').trim();
@@ -2603,10 +2604,10 @@
         if (matchingCard) {
           const imgHTML = matchingCard.img ? `<img src="${matchingCard.img}" class="mention-preview-thumb" style="width:24px; height:24px; border-radius:4px; object-fit:cover;" />` : '';
           
-          // Using standard styling overrides to guarantee it highlights visually on screen!
+          // Clean, minimal style: No green background, no '@', white text with a clear underline
           return `
-            <span class="mention-tag resolved" style="background: rgba(16, 185, 129, 0.15); color: #10b981; border: 1px solid rgba(16, 185, 129, 0.3); padding: 2px 6px; border-radius: 4px; cursor: pointer; display: inline-flex; align-items: center; gap: 4px; font-weight: 600;" onclick="event.stopPropagation(); if (typeof jumpToSearchResult === 'function') { jumpToSearchResult('${activeBoardId}', '${matchingCard.id}'); } else { console.log('Target card ID:', '${matchingCard.id}'); }">
-              👤 ${matchingCard.title}
+            <span class="mention-tag resolved" style="color: #f8fafc; text-decoration: underline; font-weight: 600; cursor: pointer; display: inline; position: relative;" onclick="event.stopPropagation(); if (typeof jumpToSearchResult === 'function') { jumpToSearchResult('${activeBoardId}', '${matchingCard.id}'); } else { console.log('Target card ID:', '${matchingCard.id}'); }">
+              ${matchingCard.title}
               <div class="mention-preview-popover">
                 ${imgHTML}
                 <span class="mention-preview-title">${matchingCard.title}</span>
@@ -2614,10 +2615,10 @@
             </span>
           `;
         } else {
-          // Unresolved mention style - ready to be created
+          // Unresolved mention style - kept minimal but distinct so you know it can be created
           return `
-            <span class="mention-tag unresolved" style="background: rgba(245, 158, 11, 0.15); color: #f59e0b; border: 1px solid rgba(245, 158, 11, 0.3); padding: 2px 6px; border-radius: 4px; cursor: pointer; display: inline-flex; align-items: center; gap: 4px;" onclick="event.stopPropagation(); if (typeof quickCreateCardFromName === 'function') { quickCreateCardFromName('${name}'); }">
-              ➕ @${name}
+            <span class="mention-tag unresolved" style="color: #f59e0b; text-decoration: underline; cursor: pointer; display: inline;" onclick="event.stopPropagation(); if (typeof quickCreateCardFromName === 'function') { quickCreateCardFromName('${name}'); }">
+              @${name}
             </span>
           `;
         }
@@ -3751,6 +3752,18 @@
         const el = document.getElementById(elementId);
         if (!el) return;
 
+        // 1. Live Spacebar Conversion Listener
+        el.addEventListener('keydown', (e) => {
+          // Check if the user pressed the Spacebar (Key code 32 or ' ')
+          if (e.key === ' ' || e.keyCode === 32) {
+            // A brief 1ms timeout allows the space character to hit the DOM before we format
+            setTimeout(() => {
+              saveCursorPositionAndFormat(el, storageKey);
+            }, 1);
+          }
+        });
+
+        // 2. Standard Input / Auto-Save Listener
         el.addEventListener('input', () => {
           clearTimeout(notesSaveTimeout);
           
@@ -3769,9 +3782,13 @@
           }, 1000);
         });
 
-        // Clean up text and render clickable tags the exact moment focus shifts away
+        // 3. Blur Safety Pass (when focus shifts away)
         el.addEventListener('blur', () => {
-          parseAndRenderMentions(elementId, allBoards[activeBoardId][storageKey]);
+          const rawText = allBoards[activeBoardId][storageKey] || '';
+          const formattedHTML = formatMentionsToHTML(rawText);
+          if (el.innerHTML !== formattedHTML) {
+            el.innerHTML = formattedHTML;
+          }
         });
       };
 
@@ -3779,6 +3796,77 @@
       bindContainer('book-general-content', 'generalNote');
     }
 
+    /* --- ADDED NEW: CURSOR TRACKING ENGINE FOR LIVE EDITING --- */
+
+    function saveCursorPositionAndFormat(element, storageKey) {
+      const selection = window.getSelection();
+      if (!selection.rangeCount) return;
+      
+      const range = selection.getRangeAt(0);
+      
+      // Calculate exact character offset of the cursor before transforming the text into HTML
+      const preCaretRange = range.cloneRange();
+      preCaretRange.selectNodeContents(element);
+      preCaretRange.setEnd(range.endContainer, range.endOffset);
+      const caretOffset = preCaretRange.toString().length;
+
+      const rawText = element.innerText;
+      
+      // Keep local state perfectly synchronized
+      if (allBoards[activeBoardId]) {
+        allBoards[activeBoardId][storageKey] = rawText;
+      }
+
+      const formattedHTML = formatMentionsToHTML(rawText);
+      
+      // Only modify the DOM if a mention was actually rendered to avoid cursor stuttering
+      if (element.innerHTML !== formattedHTML) {
+        element.innerHTML = formattedHTML;
+        
+        // Put the cursor back exactly where the reader was typing
+        restoreCursorPosition(element, caretOffset);
+      }
+    }
+
+    /* --- ADDED NEW: CURSOR RESTORATION UTILITY --- */
+
+    function restoreCursorPosition(element, offset) {
+      const range = document.createRange();
+      const sel = window.getSelection();
+      let currentOffset = 0;
+      let nodeToSelect = null;
+      let finalOffset = 0;
+
+      function traverseNodes(node) {
+        if (node.nodeType === Node.TEXT_NODE) {
+          if (currentOffset + node.length >= offset) {
+            nodeToSelect = node;
+            finalOffset = offset - currentOffset;
+            return true;
+          }
+          currentOffset += node.length;
+        } else {
+          for (let i = 0; i < node.childNodes.length; i++) {
+            if (traverseNodes(node.childNodes[i])) return true;
+          }
+        }
+        return false;
+      }
+
+      traverseNodes(element);
+
+      if (nodeToSelect) {
+        try {
+          range.setStart(nodeToSelect, finalOffset);
+          range.collapse(true);
+          sel.removeAllRanges();
+          sel.addRange(range);
+        } catch (err) {
+          console.warn("Cursor restoration edge case handled:", err);
+        }
+      }
+    }
+    
     function addTimestampToNotes() {
       const el = document.getElementById('book-general-content');
       if (!el) return;
