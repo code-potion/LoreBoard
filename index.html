@@ -2579,24 +2579,19 @@
     function formatMentionsToHTML(text) {
       if (!text) return '';
       
-      // 1. Find all active cards for the current board safely
       const currentBoard = allBoards[activeBoardId];
       const activeCards = currentBoard && currentBoard.nodes ? currentBoard.nodes : [];
       
       const escapeHTML = str => str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
       
-      // Multi-word regex: Matches either @[Bracketed Name] OR @Name followed by words separated by single spaces
+      // Captures full names cleanly
       const mentionRegex = /@\[([^\]]+)\]|@([a-zA-Z0-9_\-]+(?:\s+[a-zA-Z0-9_\-]+)*)/g;
-
-      // We escape the HTML structure first so formatting code stays safe
-      // and convert newlines to line breaks for contenteditable support
       const escapedText = escapeHTML(text).replace(/\n/g, '<br>');
 
       return escapedText.replace(mentionRegex, (match, bracketName, simpleName) => {
         const name = (bracketName || simpleName || '').trim();
         if (!name) return match;
 
-        // Find match by ignoring spaces and case sensitivity
         const matchingCard = activeCards.find(n => 
           (n.title || '').trim().toLowerCase() === name.toLowerCase()
         );
@@ -2604,22 +2599,22 @@
         if (matchingCard) {
           const imgHTML = matchingCard.img ? `<img src="${matchingCard.img}" class="mention-preview-thumb" style="width:24px; height:24px; border-radius:4px; object-fit:cover;" />` : '';
           
-          // Clean, minimal style: No green background, no '@', white text with a clear underline
+          // Added an invisible zero-width space (&#8203;) right after the span tag closure
           return `
-            <span class="mention-tag resolved" style="color: #f8fafc; text-decoration: underline; font-weight: 600; cursor: pointer; display: inline; position: relative;" onclick="event.stopPropagation(); if (typeof jumpToSearchResult === 'function') { jumpToSearchResult('${activeBoardId}', '${matchingCard.id}'); } else { console.log('Target card ID:', '${matchingCard.id}'); }">
+            <span class="mention-tag resolved" style="color: #f8fafc; text-decoration: underline; font-weight: 600; cursor: pointer; display: inline; position: relative;" onclick="event.stopPropagation(); if (typeof jumpToSearchResult === 'function') { jumpToSearchResult('${activeBoardId}', '${matchingCard.id}'); }">
               ${matchingCard.title}
               <div class="mention-preview-popover">
                 ${imgHTML}
                 <span class="mention-preview-title">${matchingCard.title}</span>
               </div>
-            </span>
+            </span>&#8203;
           `;
         } else {
-          // Unresolved mention style - kept minimal but distinct so you know it can be created
+          // Added an invisible zero-width space (&#8203;) right after the unresolved tag closure
           return `
             <span class="mention-tag unresolved" style="color: #f59e0b; text-decoration: underline; cursor: pointer; display: inline;" onclick="event.stopPropagation(); if (typeof quickCreateCardFromName === 'function') { quickCreateCardFromName('${name}'); }">
               @${name}
-            </span>
+            </span>&#8203;
           `;
         }
       });
@@ -3752,46 +3747,62 @@
         const el = document.getElementById(elementId);
         if (!el) return;
 
-        // 1. Natural Input Listener (No cursor-jumping overrides while typing!)
+        // 1. Precise Spacebar Intercept
+        el.addEventListener('keydown', (e) => {
+          if (e.key === ' ' || e.keyCode === 32) {
+            const selection = window.getSelection();
+            if (!selection.rangeCount) return;
+
+            const range = selection.getRangeAt(0);
+            const textBeforeCursor = range.startContainer.textContent.substring(0, range.startOffset);
+
+            // Backslash/boundary tracking: Check if the word directly before the cursor is a mention tag
+            if (/@([a-zA-Z0-9_\-]+)$/.test(textBeforeCursor) || /@\[([^\]]+)$/.test(textBeforeCursor)) {
+              // Let the spacebar character hit the DOM naturally first, then convert instantly
+              setTimeout(() => {
+                const currentBoard = allBoards[activeBoardId];
+                const activeCards = currentBoard && currentBoard.nodes ? currentBoard.nodes : [];
+                const rawText = el.innerText;
+                
+                // Only process formatting if the word typed actually matches a card title
+                const words = rawText.match(/@([a-zA-Z0-9_\-]+(?:\s+[a-zA-Z0-9_\-]+)*)/g) || [];
+                const hasMatch = words.some(w => {
+                  const cleanW = w.replace('@', '').trim().toLowerCase();
+                  return activeCards.some(c => (c.title || '').toLowerCase() === cleanW);
+                });
+
+                if (hasMatch) {
+                  // Run our boundary-safe adjustment engine
+                  const preCaretRange = range.cloneRange();
+                  preCaretRange.selectNodeContents(el);
+                  preCaretRange.setEnd(range.endContainer, range.endOffset);
+                  
+                  // Adjust cursor offset by subtracting the missing characters (@) to maintain exact positioning
+                  const caretOffset = preCaretRange.toString().length - 1; 
+
+                  if (allBoards[activeBoardId]) {
+                    allBoards[activeBoardId][storageKey] = rawText;
+                  }
+
+                  el.innerHTML = formatMentionsToHTML(rawText);
+                  restoreCursorPosition(el, caretOffset + 1);
+                }
+              }, 1);
+            }
+          }
+        });
+
+        // 2. Standard Background Auto-Save Auto Pass
         el.addEventListener('input', () => {
           clearTimeout(notesSaveTimeout);
           
-          // Grab the text exactly as the user is typing it
-          const plainText = el.innerText;
           if (allBoards[activeBoardId]) {
-            allBoards[activeBoardId][storageKey] = plainText;
+            allBoards[activeBoardId][storageKey] = el.innerText;
           }
 
-          const indicator = document.getElementById('save-status');
-          if (indicator) indicator.style.opacity = '0';
-
-          // Background auto-save pass
           notesSaveTimeout = setTimeout(() => {
             if (typeof saveData === 'function') saveData();
-            if (indicator) {
-              indicator.style.opacity = '1';
-              setTimeout(() => { indicator.style.opacity = '0'; }, 1500);
-            }
           }, 1000);
-        });
-
-        // 2. Beautiful Render Pass (Transforms tags seamlessly when you finish or click away)
-        el.addEventListener('blur', () => {
-          const rawText = (allBoards[activeBoardId] && allBoards[activeBoardId][storageKey]) || el.innerText || '';
-          const formattedHTML = formatMentionsToHTML(rawText);
-          if (el.innerHTML !== formattedHTML) {
-            el.innerHTML = formattedHTML;
-          }
-        });
-
-        // 3. Clear formatting on focus so you can edit the raw text/tags easily
-        el.addEventListener('focus', () => {
-          const rawText = (allBoards[activeBoardId] && allBoards[activeBoardId][storageKey]) || el.innerText || '';
-          // Replaces HTML breaks back to newlines for clean editing
-          const cleanEditorText = rawText.replace(/<br\s*\/?>/gi, '\n');
-          if (el.innerText !== cleanEditorText) {
-            el.innerText = cleanEditorText;
-          }
         });
       };
 
