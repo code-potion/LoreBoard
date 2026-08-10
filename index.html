@@ -1972,7 +1972,7 @@
 
     /* Multi-Board Data Structures */
     let allBoards = {};
-    let activeBoardId = 'default';
+    let activeBoardId = null;
 
     /* Global Categories */
     let categories = [
@@ -2238,7 +2238,7 @@
           console.error("Error fetching connections:", connectionsError);
         }
 
-        // 4. Fetch all category definitions from Supabase
+        // 4. Fetch all category definitions
         const { data: categoriesData, error: categoriesError } = await supabaseClient
           .from('categories')
           .select('*');
@@ -2247,16 +2247,15 @@
           console.error("Error fetching categories:", categoriesError);
         }
     
-        // 5. Populate allBoards object
+        // 5. Populate allBoards object using the exact IDs from the database
         allBoards = {};
     
         boardsData.forEach(board => {
-          // Get cards belonging to this board
+          // Robust string matching to catch UUID vs Number anomalies
           const rawCards = cardsData 
-            ? cardsData.filter(card => String(card.board_id) === String(board.id))
+            ? cardsData.filter(card => String(card.board_id).trim() === String(board.id).trim())
             : [];
     
-          // Map Supabase fields to local card object format
           const formattedNodes = rawCards.map(c => ({
             id: c.id,
             title: c.title || 'Untitled',
@@ -2269,9 +2268,8 @@
             img: c.img || ''
           }));
 
-          // Filter and map connections belonging to this board
           const rawConnections = connectionsData
-            ? connectionsData.filter(conn => String(conn.board_id) === String(board.id))
+            ? connectionsData.filter(conn => String(conn.board_id).trim() === String(board.id).trim())
             : [];
 
           const formattedConnections = rawConnections.map(c => ({
@@ -2284,7 +2282,6 @@
             width: c.width || '4'
           }));
     
-          // Safeguard properties using database fallbacks safely
           allBoards[board.id] = {
             id: board.id,
             title: board.title,
@@ -2299,11 +2296,12 @@
           };
         });
     
+        // Force activeBoardId to match the actual database ID key we just registered
         activeBoardId = boardsData[0].id;
 
-        // 6. Reinitialize global categories array with loaded active board tags safely
+        // 6. Reinitialize global categories array safely
         if (categoriesData && categoriesData.length > 0) {
-          const activeBoardCategories = categoriesData.filter(cat => String(cat.board_id) === String(activeBoardId));
+          const activeBoardCategories = categoriesData.filter(cat => String(cat.board_id).trim() === String(activeBoardId).trim());
           if (activeBoardCategories.length > 0) {
             categories = activeBoardCategories.map(c => ({
               id: c.id,
@@ -2316,20 +2314,18 @@
         // 7. Render UI components
         renderBoardDropdown();
         if (typeof renderBoard === 'function') renderBoard();
-        loadBookNotesIntoPanel();
+        if (typeof loadBookNotesIntoPanel === 'function') loadBookNotesIntoPanel();
 
         // 8. Notes mention Initialize
         if (typeof setupNotesAutoSaveListeners === 'function') setupNotesAutoSaveListeners(); 
       
         console.log("Successfully loaded everything and turned on notes listeners!");
 
-        // Extra layout safety pass once elements render
         setTimeout(() => {
           if (typeof renderConnections === 'function') renderConnections();
           console.log("Delayed connection redraw executed.");
         }, 100);
     
-        console.log("Successfully loaded boards, cards, connections & categories from Supabase!");
       } catch (err) {
         console.error("Unexpected error in loadUserDataFromSupabase:", err);
       }
