@@ -2563,18 +2563,34 @@
     /* --- MENTION & HIGHLIGHT ENGINE --- */
     function formatMentionsToHTML(text) {
       if (!text) return '';
+      
+      // 1. Find all active cards for the current board safely
+      const currentBoard = allBoards[activeBoardId];
+      const activeCards = currentBoard && currentBoard.nodes ? currentBoard.nodes : [];
+      
       const escapeHTML = str => str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
       
-      const mentionRegex = /@\[([^\]]+)\]|@([a-zA-Z0-9_-]+)/g;
+      // Regex that matches either @[Multi Word Name] or @SimpleName
+      const mentionRegex = /@\[([^\]]+)\]|@([a-zA-Z0-9_\-]+)/g;
 
-      return escapeHTML(text).replace(mentionRegex, (match, bracketName, simpleName) => {
-        const name = bracketName || simpleName;
-        const matchingCard = getNodes().find(n => n.title.toLowerCase() === name.toLowerCase());
+      // We escape the HTML structure first so formatting code stays safe
+      const escapedText = escapeHTML(text);
+
+      return escapedText.replace(mentionRegex, (match, bracketName, simpleName) => {
+        const name = (bracketName || simpleName || '').trim();
+        if (!name) return match;
+
+        // Find match by ignoring spaces and case sensitivity
+        const matchingCard = activeCards.find(n => 
+          (n.title || '').trim().toLowerCase() === name.toLowerCase()
+        );
 
         if (matchingCard) {
-          const imgHTML = matchingCard.img ? `<img src="${matchingCard.img}" class="mention-preview-thumb" />` : '';
+          const imgHTML = matchingCard.img ? `<img src="${matchingCard.img}" class="mention-preview-thumb" style="width:24px; height:24px; border-radius:4px; object-fit:cover;" />` : '';
+          
+          // Using standard styling overrides to guarantee it highlights visually on screen!
           return `
-            <span class="mention-tag" onclick="event.stopPropagation(); jumpToSearchResult('${activeBoardId}', '${matchingCard.id}')">
+            <span class="mention-tag resolved" style="background: rgba(16, 185, 129, 0.15); color: #10b981; border: 1px solid rgba(16, 185, 129, 0.3); padding: 2px 6px; border-radius: 4px; cursor: pointer; display: inline-flex; align-items: center; gap: 4px; font-weight: 600;" onclick="event.stopPropagation(); if (typeof jumpToSearchResult === 'function') { jumpToSearchResult('${activeBoardId}', '${matchingCard.id}'); } else { console.log('Target card ID:', '${matchingCard.id}'); }">
               👤 ${matchingCard.title}
               <div class="mention-preview-popover">
                 ${imgHTML}
@@ -2583,8 +2599,9 @@
             </span>
           `;
         } else {
+          // Unresolved mention style - ready to be created
           return `
-            <span class="mention-tag unresolved" onclick="event.stopPropagation(); quickCreateCardFromName('${name}')">
+            <span class="mention-tag unresolved" style="background: rgba(245, 158, 11, 0.15); color: #f59e0b; border: 1px solid rgba(245, 158, 11, 0.3); padding: 2px 6px; border-radius: 4px; cursor: pointer; display: inline-flex; align-items: center; gap: 4px;" onclick="event.stopPropagation(); if (typeof quickCreateCardFromName === 'function') { quickCreateCardFromName('${name}'); }">
               ➕ @${name}
             </span>
           `;
