@@ -2472,23 +2472,31 @@
         categories.push(catObj);
       }
 
-      // Sync category definition to Supabase
-      if (catObj && typeof supabase !== 'undefined') {
-        const { error } = await supabase
-          .from('categories')
-          .upsert({
-            id: catObj.id,
-            board_id: activeBoardId,
-            name: catObj.name,
-            color: catObj.color
-          });
-
-        if (error) console.error("Error saving category to Supabase:", error);
-      }
-
+      // 1. FORCED IMMEDIATE UI UPDATE (Ensures instant reaction)
       resetCategoryForm();
       renderCategoryList();
-      saveData();
+
+      // 2. DATABASE SYNC (Uses your exact supabaseClient variable)
+      if (catObj && typeof supabaseClient !== 'undefined') {
+        try {
+          const { error } = await supabaseClient
+            .from('categories')
+            .upsert({
+              id: catObj.id,
+              board_id: activeBoardId,
+              name: catObj.name,
+              color: catObj.color
+            });
+
+          if (error) console.error("Supabase category save error:", error);
+          else console.log("Category successfully synced to Supabase:", catObj.name);
+        } catch (dbErr) {
+          console.error("Failed to execute database upsert:", dbErr);
+        }
+      }
+
+      // Fallback local storage save
+      if (typeof saveData === 'function') saveData();
     }
 
     function openCategoryModal() {
@@ -2530,19 +2538,27 @@
       
       categories = categories.filter(c => c.id !== catId);
 
-      // Delete from Supabase
-      if (typeof supabase !== 'undefined') {
-        const { error } = await supabase
-          .from('categories')
-          .delete()
-          .eq('id', catId);
-
-        if (error) console.error("Error deleting category from Supabase:", error);
-      }
-
+      // 1. FORCED IMMEDIATE UI UPDATE
       resetCategoryForm();
       renderCategoryList();
-      saveData();
+
+      // 2. DATABASE DELETION (Uses your exact supabaseClient variable)
+      if (typeof supabaseClient !== 'undefined') {
+        try {
+          const { error } = await supabaseClient
+            .from('categories')
+            .delete()
+            .eq('id', catId);
+
+          if (error) console.error("Supabase category delete error:", error);
+          else console.log("Category successfully deleted from Supabase.");
+        } catch (dbErr) {
+          console.error("Failed to execute database delete:", dbErr);
+        }
+      }
+
+      // Fallback local storage save
+      if (typeof saveData === 'function') saveData();
     }
 
     /* --- MENTION & HIGHLIGHT ENGINE --- */
