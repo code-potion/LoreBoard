@@ -2083,12 +2083,13 @@
     /* --- BOARD SWITCHING & RENAMING MANAGEMENT --- */
     function renderBoardDropdown() {
       const select = document.getElementById('board-select');
+      if (!select) return;
       select.innerHTML = '';
       Object.keys(allBoards).forEach(id => {
         const opt = document.createElement('option');
         opt.value = id;
         opt.textContent = allBoards[id].title;
-        if (id === activeBoardId) opt.selected = true;
+        if (String(id) === String(activeBoardId)) opt.selected = true;
         select.appendChild(opt);
       });
     }
@@ -2096,8 +2097,8 @@
     function switchBoard(boardId) {
       activeBoardId = boardId;
       selectedNodes = [];
-      renderBoard();
-      loadBookNotesIntoPanel();
+      if (typeof renderBoard === 'function') renderBoard();
+      if (typeof loadBookNotesIntoPanel === 'function') loadBookNotesIntoPanel();
     }
 
     async function renameCurrentBoard() {
@@ -2192,7 +2193,7 @@
     
         activeBoardId = newBoardId;
         renderBoardDropdown();
-        renderBoard();
+        if (typeof renderBoard === 'function') renderBoard();
         loadBookNotesIntoPanel();
     
         console.log("Board successfully created in Supabase!", createdBoard);
@@ -2252,7 +2253,7 @@
         boardsData.forEach(board => {
           // Get cards belonging to this board
           const rawCards = cardsData 
-            ? cardsData.filter(card => card.board_id === board.id)
+            ? cardsData.filter(card => String(card.board_id) === String(board.id))
             : [];
     
           // Map Supabase fields to local card object format
@@ -2283,7 +2284,7 @@
             width: c.width || '4'
           }));
     
-          // Safeguard properties using database fallsbacks safely
+          // Safeguard properties using database fallbacks safely
           allBoards[board.id] = {
             id: board.id,
             title: board.title,
@@ -2300,7 +2301,7 @@
     
         activeBoardId = boardsData[0].id;
 
-        // 6. Reinitialize global categories array with loaded active board tags
+        // 6. Reinitialize global categories array with loaded active board tags safely
         if (categoriesData && categoriesData.length > 0) {
           const activeBoardCategories = categoriesData.filter(cat => String(cat.board_id) === String(activeBoardId));
           if (activeBoardCategories.length > 0) {
@@ -2314,17 +2315,17 @@
     
         // 7. Render UI components
         renderBoardDropdown();
-        renderBoard();
+        if (typeof renderBoard === 'function') renderBoard();
         loadBookNotesIntoPanel();
 
         // 8. Notes mention Initialize
-        setupNotesAutoSaveListeners(); 
+        if (typeof setupNotesAutoSaveListeners === 'function') setupNotesAutoSaveListeners(); 
       
         console.log("Successfully loaded everything and turned on notes listeners!");
 
         // Extra layout safety pass once elements render
         setTimeout(() => {
-          renderConnections();
+          if (typeof renderConnections === 'function') renderConnections();
           console.log("Delayed connection redraw executed.");
         }, 100);
     
@@ -2354,7 +2355,7 @@
     
         // 3. Update UI
         renderBoardDropdown();
-        renderBoard();
+        if (typeof renderBoard === 'function') renderBoard();
         loadBookNotesIntoPanel();
     
         // 4. Delete row from Supabase
