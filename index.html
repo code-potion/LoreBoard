@@ -2412,22 +2412,40 @@
       });
     }
 
-    function addOrUpdateCategory() {
+    async function addOrUpdateCategory() {
       const editId = document.getElementById('editing-category-id').value;
       const name = document.getElementById('new-cat-name').value.trim();
       const color = document.getElementById('new-cat-color').value;
 
       if (!name) return;
 
+      let catObj;
+
       if (editId) {
         const cat = categories.find(c => c.id === editId);
         if (cat) {
           cat.name = name;
           cat.color = color;
+          catObj = cat;
         }
       } else {
         const id = 'cat_' + Date.now();
-        categories.push({ id, name, color });
+        catObj = { id, name, color };
+        categories.push(catObj);
+      }
+
+      // Sync category definition to Supabase
+      if (catObj && typeof supabase !== 'undefined') {
+        const { error } = await supabase
+          .from('categories')
+          .upsert({
+            id: catObj.id,
+            board_id: activeBoardId,
+            name: catObj.name,
+            color: catObj.color
+          });
+
+        if (error) console.error("Error saving category to Supabase:", error);
       }
 
       resetCategoryForm();
@@ -2466,12 +2484,24 @@
       document.getElementById('cancel-edit-cat-btn').style.display = 'none';
     }
 
-    function deleteCategory(catId) {
+    async function deleteCategory(catId) {
       if (categories.length <= 1) {
         alert("Must keep at least one category.");
         return;
       }
+      
       categories = categories.filter(c => c.id !== catId);
+
+      // Delete from Supabase
+      if (typeof supabase !== 'undefined') {
+        const { error } = await supabase
+          .from('categories')
+          .delete()
+          .eq('id', catId);
+
+        if (error) console.error("Error deleting category from Supabase:", error);
+      }
+
       resetCategoryForm();
       renderCategoryList();
       saveData();
