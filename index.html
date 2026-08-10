@@ -1351,35 +1351,44 @@
   </div>
 
   <!-- BOOK NOTES PANEL -->
-  <div id="book-notes-panel">
-    <div class="panel-header">
-      <div class="panel-title">
-        <span>📖 Notes for:</span>
-        <span id="book-notes-board-title" style="color: #f8fafc; text-decoration: underline;">Book Title</span>
+    <div id="book-notes-panel">
+      <div class="panel-header">
+        <div class="panel-title">
+          <span>📖 Notes for:</span>
+          <span id="book-notes-board-title" style="color: #f8fafc; text-decoration: underline;">Book Title</span>
+        </div>
+        <button class="close-panel-btn" onclick="toggleBookNotesPanel()">✕</button>
       </div>
-      <button class="close-panel-btn" onclick="toggleBookNotesPanel()">✕</button>
+  
+      <div class="notes-tools">
+        <button onclick="addTimestampToNotes()" style="background: #334155; font-size: 0.75rem; padding: 4px 8px;">⏱️ + Add Date Stamp</button>
+        <!-- Mode toggle button removed because typing and clicking are now merged! -->
+        <span id="save-status" class="save-status-indicator">✓ Saved</span>
+      </div>
+  
+      <!-- Favorite Lines Section -->
+      <div class="notes-section" style="flex: 2;">
+        <label><span>💬 Favorite Lines, Quotes & Thoughts</span></label>
+        <div 
+          id="book-quotes-content" 
+          contenteditable="true" 
+          placeholder="Favorite lines, quotes & thoughts..."
+          style="height: 100%; background: #0f172a; border: 1px solid #334155; border-radius: 6px; padding: 10px; color: #f8fafc; overflow-y: auto; outline: none;"
+        ></div>
+      </div>
+  
+      <!-- General Notes Section -->
+      <div class="notes-section" style="flex: 3;">
+        <label><span>📝 Book Review & General Notes</span></label>
+        <div 
+          id="book-general-content" 
+          contenteditable="true" 
+          placeholder="Write thoughts, summaries, or theories (use @Name to mention)..."
+          style="height: 100%; background: #0f172a; border: 1px solid #334155; border-radius: 6px; padding: 10px; color: #f8fafc; overflow-y: auto; outline: none;"
+        ></div>
+      </div>
     </div>
-
-    <div class="notes-tools">
-      <button onclick="addTimestampToNotes()" style="background: #334155; font-size: 0.75rem; padding: 4px 8px;">⏱️ + Add Date Stamp</button>
-      <button id="toggle-edit-mode-btn" onclick="toggleNotesEditMode()" style="background: #0284c7; font-size: 0.75rem; padding: 4px 8px;">👁️ View Mentions Mode</button>
-      <span id="save-status" class="save-status-indicator">✓ Saved</span>
-    </div>
-
-    <div class="notes-section" style="flex: 2;">
-      <label><span>💬 Favorite Lines, Quotes & Thoughts</span></label>
-      <textarea id="book-quotes-text" class="notes-textarea" style="height: 100%;" placeholder="Paste impactful quotes or character dialogue (use @Name to mention or quick-create cards)..." oninput="handleNotesInput('quotes', this, event)"></textarea>
-      <div id="book-quotes-rich" class="mention-rich-display" style="height: 100%; display: none;" onclick="toggleNotesEditMode(true)"></div>
-    </div>
-
-    <div class="notes-section" style="flex: 3;">
-      <label><span>📝 Book Review & General Notes</span></label>
-      <textarea id="book-general-text" class="notes-textarea" style="height: 100%;" placeholder="Write thoughts, summaries, or theories (use @Name to mention or quick-create cards)..." oninput="handleNotesInput('general', this, event)"></textarea>
-      <div id="book-general-rich" class="mention-rich-display" style="height: 100%; display: none;" onclick="toggleNotesEditMode(true)"></div>
-    </div>
-  </div>
-
-  <div id="main-layout">
+      
     <!-- FLOATING TOGGLE BUTTON FOR HIDDEN SIDEBAR -->
     <button id="sidebar-expand-btn" onclick="toggleSidebar()">📌 Show Controls</button>
 
@@ -2305,6 +2314,12 @@
         renderBoardDropdown();
         renderBoard();
         loadBookNotesIntoPanel();
+
+        // notes mention Initialize
+        setupNotesAutoSaveListeners(); 
+      
+        console.log("Successfully loaded everything and turned on notes listeners!");
+      }
 
         // Extra layout safety pass once elements render
         setTimeout(() => {
@@ -3649,76 +3664,112 @@
       document.getElementById('book-notes-panel').classList.toggle('open');
     }
 
-    function toggleNotesEditMode(forceEdit = false) {
-      if (forceEdit) isNotesRichMode = false;
-      else isNotesRichMode = !isNotesRichMode;
+    // High-performance decorator that adds styles without breaking cursor typing positions
+    function parseAndRenderMentions(elementId, rawText) {
+      const container = document.getElementById(elementId);
+      if (!container) return;
 
-      const quotesText = document.getElementById('book-quotes-text');
-      const quotesRich = document.getElementById('book-quotes-rich');
-      const generalText = document.getElementById('book-general-text');
-      const generalRich = document.getElementById('book-general-rich');
-      const btn = document.getElementById('toggle-edit-mode-btn');
+      const currentBoard = allBoards[activeBoardId];
+      const activeCards = currentBoard && currentBoard.nodes ? currentBoard.nodes : [];
+      
+      const escapeHTML = str => str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+      const mentionRegex = /@\[([^\]]+)\]|@([a-zA-Z0-9_\-]+)/g;
 
-      if (isNotesRichMode) {
-        renderRichBookNotes();
-        quotesText.style.display = 'none';
-        quotesRich.style.display = 'block';
-        generalText.style.display = 'none';
-        generalRich.style.display = 'block';
-        btn.textContent = '✏️ Edit Text Mode';
-        btn.style.background = '#f59e0b';
-      } else {
-        quotesText.style.display = 'block';
-        quotesRich.style.display = 'none';
-        generalText.style.display = 'block';
-        generalRich.style.display = 'none';
-        btn.textContent = '👁️ View Mentions Mode';
-        btn.style.background = '#0284c7';
-      }
-    }
+      const escapedText = escapeHTML(rawText).replace(/\n/g, '<br>');
 
-    function renderRichBookNotes() {
-      const quotesText = document.getElementById('book-quotes-text').value;
-      const generalText = document.getElementById('book-general-text').value;
+      const processedHTML = escapedText.replace(mentionRegex, (match, bracketName, simpleName) => {
+        const name = (bracketName || simpleName || '').trim();
+        if (!name) return match;
 
-      document.getElementById('book-quotes-rich').innerHTML = formatMentionsToHTML(quotesText) || '<em style="color:#64748b;">No quotes added...</em>';
-      document.getElementById('book-general-rich').innerHTML = formatMentionsToHTML(generalText) || '<em style="color:#64748b;">No notes added...</em>';
+        const matchingCard = activeCards.find(n => 
+          (n.title || '').trim().toLowerCase() === name.toLowerCase()
+        );
+
+        if (matchingCard) {
+          const imgHTML = matchingCard.img ? `<img src="${matchingCard.img}" style="width:40px; height:40px; border-radius:4px; object-fit:cover;" />` : '';
+          
+          return `
+            <span class="mention-wrapper" style="position: relative; display: inline-block;" contenteditable="false">
+              <span class="mention-tag resolved" style="color: #10b981; text-decoration: underline; font-weight: 600; cursor: pointer;" 
+                    onclick="event.stopPropagation(); jumpToSearchResult('${activeBoardId}', '${matchingCard.id}');">@${matchingCard.title}</span>
+              <div class="mention-preview-hover" style="display: none; position: absolute; bottom: 125%; left: 50%; transform: translateX(-50%); background: #1e293b; border: 1px solid #334155; padding: 8px; border-radius: 6px; z-index: 999; width: 160px; box-shadow: 0 4px 12px rgba(0,0,0,0.5); text-align: center; pointer-events: none;">
+                ${imgHTML}
+                <div style="font-size: 0.8rem; font-weight: 600; color: #f8fafc; margin-top: 4px;">${matchingCard.title}</div>
+              </div>
+            </span>
+          `;
+        } else {
+          return `<span class="mention-tag unresolved" contenteditable="false" style="color: #f59e0b; text-decoration: underline; cursor: pointer;" onclick="event.stopPropagation(); quickCreateCardFromName('${name}');">@${name}</span>`;
+        }
+      });
+
+      container.innerHTML = processedHTML;
     }
 
     function loadBookNotesIntoPanel() {
       const board = allBoards[activeBoardId];
       document.getElementById('book-notes-board-title').textContent = board.title;
-      document.getElementById('book-quotes-text').value = board.quotesNote || '';
-      document.getElementById('book-general-text').value = board.generalNote || '';
-      if (isNotesRichMode) renderRichBookNotes();
+      
+      // Load initial text and parse them into interactive layouts right away
+      parseAndRenderMentions('book-quotes-content', board.quotesNote || '');
+      parseAndRenderMentions('book-general-content', board.generalNote || '');
     }
 
     let notesSaveTimeout = null;
-    function autoSaveBookNotes() {
-      clearTimeout(notesSaveTimeout);
-      const quotes = document.getElementById('book-quotes-text').value;
-      const general = document.getElementById('book-general-text').value;
+    
+    // Listen for keystrokes, extract innerText raw value, and save dynamically
+    function setupNotesAutoSaveListeners() {
+      const bindContainer = (elementId, storageKey) => {
+        const el = document.getElementById(elementId);
+        if (!el) return;
 
-      allBoards[activeBoardId].quotesNote = quotes;
-      allBoards[activeBoardId].generalNote = general;
+        el.addEventListener('input', () => {
+          clearTimeout(notesSaveTimeout);
+          
+          // Get clean plain text out of the contenteditable div element
+          const plainText = el.innerText;
+          allBoards[activeBoardId][storageKey] = plainText;
 
-      const indicator = document.getElementById('save-status');
-      indicator.style.opacity = '0';
+          const indicator = document.getElementById('save-status');
+          if (indicator) indicator.style.opacity = '0';
 
-      notesSaveTimeout = setTimeout(() => {
-        saveData();
-        indicator.style.opacity = '1';
-        setTimeout(() => { indicator.style.opacity = '0'; }, 1500);
-      }, 500);
+          notesSaveTimeout = setTimeout(() => {
+            if (typeof saveData === 'function') saveData();
+            if (indicator) {
+              indicator.style.opacity = '1';
+              setTimeout(() => { indicator.style.opacity = '0'; }, 1500);
+            }
+          }, 1000); // 1-second debounce window while typing
+        });
+
+        // Re-process tags smoothly when user clicks or tabs out of the box
+        el.addEventListener('blur', () => {
+          parseAndRenderMentions(elementId, allBoards[activeBoardId][storageKey]);
+        });
+      };
+
+      bindContainer('book-quotes-content', 'quotesNote');
+      bindContainer('book-general-content', 'generalNote');
     }
 
     function addTimestampToNotes() {
-      const textarea = document.getElementById('book-general-text');
+      const el = document.getElementById('book-general-content');
+      if (!el) return;
       const timestamp = `\n\n--- [${new Date().toLocaleDateString()} - Reading Session] ---\n`;
-      textarea.value += timestamp;
-      textarea.focus();
-      textarea.selectionStart = textarea.value.length;
-      autoSaveBookNotes();
+      
+      el.innerText += timestamp;
+      allBoards[activeBoardId].generalNote = el.innerText;
+      
+      // Force position adjustments to end of string focus context
+      el.focus();
+      const range = document.createRange();
+      const sel = window.getSelection();
+      range.selectNodeContents(el);
+      range.collapse(false);
+      sel.removeAllRanges();
+      sel.addRange(range);
+      
+      if (typeof saveData === 'function') saveData();
     }
 
     /* --- GLOBAL SEARCH ENGINE --- */
