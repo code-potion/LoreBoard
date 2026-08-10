@@ -3747,62 +3747,25 @@
         const el = document.getElementById(elementId);
         if (!el) return;
 
-        // 1. Precise Spacebar Intercept
-        el.addEventListener('keydown', (e) => {
-          if (e.key === ' ' || e.keyCode === 32) {
-            const selection = window.getSelection();
-            if (!selection.rangeCount) return;
-
-            const range = selection.getRangeAt(0);
-            const textBeforeCursor = range.startContainer.textContent.substring(0, range.startOffset);
-
-            // Backslash/boundary tracking: Check if the word directly before the cursor is a mention tag
-            if (/@([a-zA-Z0-9_\-]+)$/.test(textBeforeCursor) || /@\[([^\]]+)$/.test(textBeforeCursor)) {
-              // Let the spacebar character hit the DOM naturally first, then convert instantly
-              setTimeout(() => {
-                const currentBoard = allBoards[activeBoardId];
-                const activeCards = currentBoard && currentBoard.nodes ? currentBoard.nodes : [];
-                const rawText = el.innerText;
-                
-                // Only process formatting if the word typed actually matches a card title
-                const words = rawText.match(/@([a-zA-Z0-9_\-]+(?:\s+[a-zA-Z0-9_\-]+)*)/g) || [];
-                const hasMatch = words.some(w => {
-                  const cleanW = w.replace('@', '').trim().toLowerCase();
-                  return activeCards.some(c => (c.title || '').toLowerCase() === cleanW);
-                });
-
-                if (hasMatch) {
-                  // Run our boundary-safe adjustment engine
-                  const preCaretRange = range.cloneRange();
-                  preCaretRange.selectNodeContents(el);
-                  preCaretRange.setEnd(range.endContainer, range.endOffset);
-                  
-                  // Adjust cursor offset by subtracting the missing characters (@) to maintain exact positioning
-                  const caretOffset = preCaretRange.toString().length - 1; 
-
-                  if (allBoards[activeBoardId]) {
-                    allBoards[activeBoardId][storageKey] = rawText;
-                  }
-
-                  el.innerHTML = formatMentionsToHTML(rawText);
-                  restoreCursorPosition(el, caretOffset + 1);
-                }
-              }, 1);
-            }
-          }
-        });
-
-        // 2. Standard Background Auto-Save Auto Pass
-        el.addEventListener('input', () => {
+        // 1. Natural Typing Interface (Completely glitch-free)
+        el.addEventListener('input', (e) => {
           clearTimeout(notesSaveTimeout);
           
+          const rawText = el.innerText;
           if (allBoards[activeBoardId]) {
-            allBoards[activeBoardId][storageKey] = el.innerText;
+            allBoards[activeBoardId][storageKey] = rawText;
           }
 
+          // Trigger save pipeline
           notesSaveTimeout = setTimeout(() => {
             if (typeof saveData === 'function') saveData();
           }, 1000);
+        });
+
+        // 2. Clear & Clean Convert on Blur (When you click out, it perfectly formats)
+        el.addEventListener('blur', () => {
+          const rawText = (allBoards[activeBoardId] && allBoards[activeBoardId][storageKey]) || el.innerText || '';
+          el.innerHTML = formatMentionsToHTML(rawText);
         });
       };
 
