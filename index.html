@@ -3752,27 +3752,20 @@
         const el = document.getElementById(elementId);
         if (!el) return;
 
-        // 1. Live Spacebar Conversion Listener
-        el.addEventListener('keydown', (e) => {
-          // Check if the user pressed the Spacebar (Key code 32 or ' ')
-          if (e.key === ' ' || e.keyCode === 32) {
-            // A brief 1ms timeout allows the space character to hit the DOM before we format
-            setTimeout(() => {
-              saveCursorPositionAndFormat(el, storageKey);
-            }, 1);
-          }
-        });
-
-        // 2. Standard Input / Auto-Save Listener
+        // 1. Natural Input Listener (No cursor-jumping overrides while typing!)
         el.addEventListener('input', () => {
           clearTimeout(notesSaveTimeout);
           
+          // Grab the text exactly as the user is typing it
           const plainText = el.innerText;
-          allBoards[activeBoardId][storageKey] = plainText;
+          if (allBoards[activeBoardId]) {
+            allBoards[activeBoardId][storageKey] = plainText;
+          }
 
           const indicator = document.getElementById('save-status');
           if (indicator) indicator.style.opacity = '0';
 
+          // Background auto-save pass
           notesSaveTimeout = setTimeout(() => {
             if (typeof saveData === 'function') saveData();
             if (indicator) {
@@ -3782,12 +3775,22 @@
           }, 1000);
         });
 
-        // 3. Blur Safety Pass (when focus shifts away)
+        // 2. Beautiful Render Pass (Transforms tags seamlessly when you finish or click away)
         el.addEventListener('blur', () => {
-          const rawText = allBoards[activeBoardId][storageKey] || '';
+          const rawText = (allBoards[activeBoardId] && allBoards[activeBoardId][storageKey]) || el.innerText || '';
           const formattedHTML = formatMentionsToHTML(rawText);
           if (el.innerHTML !== formattedHTML) {
             el.innerHTML = formattedHTML;
+          }
+        });
+
+        // 3. Clear formatting on focus so you can edit the raw text/tags easily
+        el.addEventListener('focus', () => {
+          const rawText = (allBoards[activeBoardId] && allBoards[activeBoardId][storageKey]) || el.innerText || '';
+          // Replaces HTML breaks back to newlines for clean editing
+          const cleanEditorText = rawText.replace(/<br\s*\/?>/gi, '\n');
+          if (el.innerText !== cleanEditorText) {
+            el.innerText = cleanEditorText;
           }
         });
       };
