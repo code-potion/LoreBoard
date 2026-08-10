@@ -3748,60 +3748,83 @@
         const el = document.getElementById(elementId);
         if (!el) return;
 
-        // 1. Live Multi-Tag Slash-Completion Intercept
         el.addEventListener('input', (e) => {
           clearTimeout(notesSaveTimeout);
-          
-          const rawText = el.innerText;
-          if (allBoards[activeBoardId]) {
-            allBoards[activeBoardId][storageKey] = rawText;
-          }
 
           const selection = window.getSelection();
           if (selection.rangeCount > 0) {
             const range = selection.getRangeAt(0);
-            const textBefore = range.startContainer.textContent.substring(0, range.startOffset);
             
-            // Check if the user just closed ANY slash tag block anywhere in the note
-            if (/\/\/([^\/]+)\/\/$/.test(textBefore)) {
-              
-              // Standardized Caret Position Snapshot
-              const preCaretRange = range.cloneRange();
-              preCaretRange.selectNodeContents(el);
-              preCaretRange.setEnd(range.endContainer, range.endOffset);
-              
-              // Calculate character offset relative to plain text to prevent HTML node fragmentation bugs
-              const plainTextLengthBefore = preCaretRange.toString().length;
-              
-              // Calculate how many total closed tags exist in the raw string up to this point
-              const rawTextUpToCursor = rawText.substring(0, plainTextLengthBefore);
-              const totalClosedTagsBefore = (rawTextUpToCursor.match(/\/\/([^\/]+)\/\//g) || []).length;
-              
-              // Each resolved tag loses 4 boundary characters ("//" and "//") when converted to HTML.
-              // We adjust our offset position balance dynamically based on the total active tag count!
-              const adjustedOffset = plainTextLengthBefore - (totalClosedTagsBefore * 4);
+            // Look ONLY at the current text node the user is actively typing in
+            const currentNode = range.startContainer;
+            const textBeforeCursor = currentNode.textContent.substring(0, range.startOffset);
 
-              // Update the workspace layout wrapper safely
-              el.innerHTML = formatMentionsToHTML(rawText);
+            // Check if the user just closed a tag block inside this specific text node
+            if (/\/\/([^\/]+)\/\/$/.test(textBeforeCursor)) {
               
-              // Restore target cursor position flawlessly
-              if (typeof restoreCursorPosition === 'function') {
-                restoreCursorPosition(el, adjustedOffset);
+              // 1. Extract the raw text from the entire box, but keep the HTML tags intact
+              // We reconstruct the raw text by converting existing spans back to //name// text
+              let intactRawText = "";
+              el.childNodes.forEach(node => {
+                if (node.nodeType === Node.TEXT_NODE) {
+                  intactRawText += node.textContent;
+                } else if (node.nodeType === Node.ELEMENT_NODE) {
+                  if (node.classList.contains('mention-tag')) {
+                    // Reconstruct the slashes for existing links so the regex reads them safely!
+                    const isUnresolved = node.classList.contains('unresolved');
+                    const cleanName = node.innerText.replace('//', '').trim();
+                    intactRawText += `//${cleanName}//`;
+                  } else if (node.tagName === 'BR') {
+                    intactRawText += '\n';
+                  } else {
+                    intactRawText += node.innerText;
+                  }
+                }
+              });
+
+              // 2. Save the fully protected text to the database
+              if (allBoards[activeBoardId]) {
+                allBoards[activeBoardId][storageKey] = intactRawText;
               }
+
+              // 3. Re-run the formatter on the reconstructed text
+              el.innerHTML = formatMentionsToHTML(intactRawText);
+
+              // 4. Force the cursor to the very end of the text box so you can keep typing naturally
+              const newRange = document.createRange();
+              const newSel = window.getSelection();
+              newRange.selectNodeContents(el);
+              newRange.collapse(false); // false means collapse to end
+              newSel.removeAllRanges();
+              newSel.addRange(newRange);
+              
               return;
             }
           }
 
-          // Standard background auto-save pass
+          // Standard background save for normal typing characters
+          if (allBoards[activeBoardId]) {
+            // Reconstruct plain text for saving even when typing normally
+            let currentRawText = "";
+            el.childNodes.forEach(node => {
+              if (node.nodeType === Node.TEXT_NODE) currentRawText += node.textContent;
+              else if (node.nodeType === Node.ELEMENT_NODE) {
+                if (node.classList.contains('mention-tag')) {
+                  const cleanName = node.innerText.replace('//', '').trim();
+                  currentRawText += `//${cleanName}//`;
+                } else if (node.tagName === 'BR') {
+                  currentRawText += '\n';
+                } else {
+                  currentRawText += node.innerText;
+                }
+              }
+            });
+            allBoards[activeBoardId][storageKey] = currentRawText;
+          }
+
           notesSaveTimeout = setTimeout(() => {
             if (typeof saveData === 'function') saveData();
           }, 1000);
-        });
-
-        // 2. Blur Safety Sweep
-        el.addEventListener('blur', () => {
-          const rawText = (allBoards[activeBoardId] && allBoards[activeBoardId][storageKey]) || el.innerText || '';
-          el.innerHTML = formatMentionsToHTML(rawText);
         });
       };
 
