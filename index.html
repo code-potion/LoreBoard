@@ -2237,7 +2237,7 @@
           console.error("Error fetching connections:", connectionsError);
         }
 
-        // NEW STEP: Fetch all category definitions from Supabase
+        // 4. Fetch all category definitions from Supabase
         const { data: categoriesData, error: categoriesError } = await supabaseClient
           .from('categories')
           .select('*');
@@ -2246,7 +2246,7 @@
           console.error("Error fetching categories:", categoriesError);
         }
     
-        // 4. Populate allBoards object
+        // 5. Populate allBoards object
         allBoards = {};
     
         boardsData.forEach(board => {
@@ -2283,15 +2283,16 @@
             width: c.width || '4'
           }));
     
+          // Safeguard properties using database fallsbacks safely
           allBoards[board.id] = {
             id: board.id,
             title: board.title,
             nodes: formattedNodes,
             connections: formattedConnections,
             groups: [],
-            quotesNote: '',
-            generalNote: '',
-            mapImage: '',
+            quotesNote: board.quotes_note || board.quotesNote || '', 
+            generalNote: board.general_note || board.generalNote || '',
+            mapImage: board.mapImage || '',
             mapPins: [],
             timelineEvents: []
           };
@@ -2299,7 +2300,7 @@
     
         activeBoardId = boardsData[0].id;
 
-        // NEW STEP: Reinitialize global categories array with loaded active board tags
+        // 6. Reinitialize global categories array with loaded active board tags
         if (categoriesData && categoriesData.length > 0) {
           const activeBoardCategories = categoriesData.filter(cat => String(cat.board_id) === String(activeBoardId));
           if (activeBoardCategories.length > 0) {
@@ -2311,11 +2312,12 @@
           }
         }
     
+        // 7. Render UI components
         renderBoardDropdown();
         renderBoard();
         loadBookNotesIntoPanel();
 
-        // notes mention Initialize
+        // 8. Notes mention Initialize
         setupNotesAutoSaveListeners(); 
       
         console.log("Successfully loaded everything and turned on notes listeners!");
