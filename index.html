@@ -3662,10 +3662,11 @@
 
     /* --- BOOK NOTES PANEL LOGIC --- */
     function toggleBookNotesPanel() {
-      document.getElementById('book-notes-panel').classList.toggle('open');
+      const panel = document.getElementById('book-notes-panel');
+      if (panel) panel.classList.toggle('open');
     }
 
-    // High-performance decorator that adds styles without breaking cursor typing positions
+    // Safely parse plain text into interactive mention layouts
     function parseAndRenderMentions(elementId, rawText) {
       const container = document.getElementById(elementId);
       if (!container) return;
@@ -3692,7 +3693,7 @@
           return `
             <span class="mention-wrapper" style="position: relative; display: inline-block;" contenteditable="false">
               <span class="mention-tag resolved" style="color: #10b981; text-decoration: underline; font-weight: 600; cursor: pointer;" 
-                    onclick="event.stopPropagation(); jumpToSearchResult('${activeBoardId}', '${matchingCard.id}');">@${matchingCard.title}</span>
+                    onclick="event.stopPropagation(); if(typeof jumpToSearchResult === 'function') jumpToSearchResult('${activeBoardId}', '${matchingCard.id}');">@${matchingCard.title}</span>
               <div class="mention-preview-hover" style="display: none; position: absolute; bottom: 125%; left: 50%; transform: translateX(-50%); background: #1e293b; border: 1px solid #334155; padding: 8px; border-radius: 6px; z-index: 999; width: 160px; box-shadow: 0 4px 12px rgba(0,0,0,0.5); text-align: center; pointer-events: none;">
                 ${imgHTML}
                 <div style="font-size: 0.8rem; font-weight: 600; color: #f8fafc; margin-top: 4px;">${matchingCard.title}</div>
@@ -3700,7 +3701,7 @@
             </span>
           `;
         } else {
-          return `<span class="mention-tag unresolved" contenteditable="false" style="color: #f59e0b; text-decoration: underline; cursor: pointer;" onclick="event.stopPropagation(); quickCreateCardFromName('${name}');">@${name}</span>`;
+          return `<span class="mention-tag unresolved" contenteditable="false" style="color: #f59e0b; text-decoration: underline; cursor: pointer;" onclick="event.stopPropagation(); if(typeof quickCreateCardFromName === 'function') quickCreateCardFromName('${name}');">@${name}</span>`;
         }
       });
 
@@ -3709,16 +3710,18 @@
 
     function loadBookNotesIntoPanel() {
       const board = allBoards[activeBoardId];
-      document.getElementById('book-notes-board-title').textContent = board.title;
+      if (!board) return;
       
-      // Load initial text and parse them into interactive layouts right away
+      const titleEl = document.getElementById('book-notes-board-title');
+      if (titleEl) titleEl.textContent = board.title;
+      
+      // Populate our contenteditable frames cleanly
       parseAndRenderMentions('book-quotes-content', board.quotesNote || '');
       parseAndRenderMentions('book-general-content', board.generalNote || '');
     }
 
     let notesSaveTimeout = null;
     
-    // Listen for keystrokes, extract innerText raw value, and save dynamically
     function setupNotesAutoSaveListeners() {
       const bindContainer = (elementId, storageKey) => {
         const el = document.getElementById(elementId);
@@ -3727,7 +3730,6 @@
         el.addEventListener('input', () => {
           clearTimeout(notesSaveTimeout);
           
-          // Get clean plain text out of the contenteditable div element
           const plainText = el.innerText;
           allBoards[activeBoardId][storageKey] = plainText;
 
@@ -3740,10 +3742,10 @@
               indicator.style.opacity = '1';
               setTimeout(() => { indicator.style.opacity = '0'; }, 1500);
             }
-          }, 1000); // 1-second debounce window while typing
+          }, 1000);
         });
 
-        // Re-process tags smoothly when user clicks or tabs out of the box
+        // Clean up text and render clickable tags the exact moment focus shifts away
         el.addEventListener('blur', () => {
           parseAndRenderMentions(elementId, allBoards[activeBoardId][storageKey]);
         });
@@ -3761,7 +3763,6 @@
       el.innerText += timestamp;
       allBoards[activeBoardId].generalNote = el.innerText;
       
-      // Force position adjustments to end of string focus context
       el.focus();
       const range = document.createRange();
       const sel = window.getSelection();
