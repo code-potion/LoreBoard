@@ -2583,40 +2583,25 @@
       const activeCards = currentBoard && currentBoard.nodes ? currentBoard.nodes : [];
       
       const escapeHTML = str => str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-      
-      // Regex matches anything wrapped between double slashes, e.g., //Geralt of Rivia//
       const slashRegex = /\/\/([^\/]+)\/\//g;
-      
       const escapedText = escapeHTML(text).replace(/\n/g, '<br>');
-
+    
       return escapedText.replace(slashRegex, (match, name) => {
         const cleanName = (name || '').trim();
         if (!cleanName) return match;
-
-        // Find match by ignoring spaces and case sensitivity
+    
         const matchingCard = activeCards.find(n => 
           (n.title || '').trim().toLowerCase() === cleanName.toLowerCase()
         );
-
+    
         if (matchingCard) {
           const imgHTML = matchingCard.img ? `<img src="${matchingCard.img}" class="mention-preview-thumb" style="width:24px; height:24px; border-radius:4px; object-fit:cover;" />` : '';
           
-          return `
-            <span class="mention-tag resolved" style="color: #f8fafc; text-decoration: underline; font-weight: 600; cursor: pointer; display: inline; position: relative;" onclick="event.stopPropagation(); if (typeof jumpToSearchResult === 'function') { jumpToSearchResult('${activeBoardId}', '${matchingCard.id}'); }">
-              ${matchingCard.title}
-              <div class="mention-preview-popover">
-                ${imgHTML}
-                <span class="mention-preview-title">${matchingCard.title}</span>
-              </div>
-            </span>&#8203;
-          `;
+          // CRITICAL: Keep this entirely on a single line with absolutely NO hidden spacing or line breaks!
+          return `<span class="mention-tag resolved" style="color: #f8fafc; text-decoration: underline; font-weight: 600; cursor: pointer; display: inline; position: relative;" onclick="event.stopPropagation(); if (typeof jumpToSearchResult === 'function') { jumpToSearchResult('${activeBoardId}', '${matchingCard.id}'); }">${matchingCard.title}<div class="mention-preview-popover">${imgHTML}<span class="mention-preview-title">${matchingCard.title}</span></div></span>&#8203;`;
         } else {
-          // Unresolved mention style - lets you quick-create the missing card card
-          return `
-            <span class="mention-tag unresolved" style="color: #f59e0b; text-decoration: underline; cursor: pointer; display: inline;" onclick="event.stopPropagation(); if (typeof quickCreateCardFromName === 'function') { quickCreateCardFromName('${cleanName}'); }">
-              //${cleanName}//
-            </span>&#8203;
-          `;
+          // CRITICAL: Keep this entirely on a single line as well
+          return `<span class="mention-tag unresolved" style="color: #f59e0b; text-decoration: underline; cursor: pointer; display: inline;" onclick="event.stopPropagation(); if (typeof quickCreateCardFromName === 'function') { quickCreateCardFromName('${cleanName}'); }">//${cleanName}//</span>&#8203;`;
         }
       });
     }
