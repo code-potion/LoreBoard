@@ -3748,7 +3748,7 @@
         const el = document.getElementById(elementId);
         if (!el) return;
 
-        // 1. Live Slash-Completion Intercept
+        // 1. Live Multi-Tag Slash-Completion Intercept
         el.addEventListener('input', (e) => {
           clearTimeout(notesSaveTimeout);
           
@@ -3757,28 +3757,38 @@
             allBoards[activeBoardId][storageKey] = rawText;
           }
 
-          // Check if the user just typed a character that completes a slash tag block
           const selection = window.getSelection();
           if (selection.rangeCount > 0) {
             const range = selection.getRangeAt(0);
             const textBefore = range.startContainer.textContent.substring(0, range.startOffset);
             
-            // If the text directly before the cursor ends with a completed //Tag//
+            // Check if the user just closed ANY slash tag block anywhere in the note
             if (/\/\/([^\/]+)\/\/$/.test(textBefore)) {
-              // Track caret character position offset
+              
+              // Standardized Caret Position Snapshot
               const preCaretRange = range.cloneRange();
               preCaretRange.selectNodeContents(el);
               preCaretRange.setEnd(range.endContainer, range.endOffset);
               
-              // We adjust offset balance by accounting for structural formatting shrinkage
-              const caretOffset = preCaretRange.toString().length - 4; // structural adjustment factor
+              // Calculate character offset relative to plain text to prevent HTML node fragmentation bugs
+              const plainTextLengthBefore = preCaretRange.toString().length;
+              
+              // Calculate how many total closed tags exist in the raw string up to this point
+              const rawTextUpToCursor = rawText.substring(0, plainTextLengthBefore);
+              const totalClosedTagsBefore = (rawTextUpToCursor.match(/\/\/([^\/]+)\/\//g) || []).length;
+              
+              // Each resolved tag loses 4 boundary characters ("//" and "//") when converted to HTML.
+              // We adjust our offset position balance dynamically based on the total active tag count!
+              const adjustedOffset = plainTextLengthBefore - (totalClosedTagsBefore * 4);
 
+              // Update the workspace layout wrapper safely
               el.innerHTML = formatMentionsToHTML(rawText);
               
+              // Restore target cursor position flawlessly
               if (typeof restoreCursorPosition === 'function') {
-                restoreCursorPosition(el, caretOffset + 4);
+                restoreCursorPosition(el, adjustedOffset);
               }
-              return; // skip timer reset since DOM updated
+              return;
             }
           }
 
@@ -3831,8 +3841,8 @@
       }
     }
 
-    /* --- ADDED NEW: CURSOR RESTORATION UTILITY --- */
-
+    /* --- STABLE DYNAMIC CURSOR TRACKING ENGINE --- */
+    
     function restoreCursorPosition(element, offset) {
       const range = document.createRange();
       const sel = window.getSelection();
@@ -3842,6 +3852,7 @@
 
       function traverseNodes(node) {
         if (node.nodeType === Node.TEXT_NODE) {
+          // If the offset falls inside this text block node bounds
           if (currentOffset + node.length >= offset) {
             nodeToSelect = node;
             finalOffset = offset - currentOffset;
@@ -3858,6 +3869,20 @@
 
       traverseNodes(element);
 
+      // Fallback fallback safety handler if offset lands exactly at the very end of the line
+      if (!nodeToSelect && currentOffset >= offset) {
+        const findLastTextNode = (node) => {
+          if (node.nodeType === Node.TEXT_NODE) return node;
+          for (let i = node.childNodes.length - 1; i >= 0; i--) {
+            const found = findLastTextNode(node.childNodes[i]);
+            if (found) return found;
+          }
+          return null;
+        };
+        nodeToSelect = findLastTextNode(element);
+        if (nodeToSelect) finalOffset = nodeToSelect.length;
+      }
+
       if (nodeToSelect) {
         try {
           range.setStart(nodeToSelect, finalOffset);
@@ -3865,7 +3890,7 @@
           sel.removeAllRanges();
           sel.addRange(range);
         } catch (err) {
-          console.warn("Cursor restoration edge case handled:", err);
+          console.warn("Handled minor caret offset boundary alignment anomaly:", err);
         }
       }
     }
