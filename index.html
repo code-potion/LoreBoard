@@ -295,9 +295,8 @@
 
     /* Mention Badges and Interactive Tags */
     .mention-tag {
-      display: inline-flex;
-      align-items: center;
-      gap: 4px;
+      display: inline-block; /* Changed from inline-flex to fix line-breaking */
+      vertical-align: middle; /* Aligns smoothly with text lines */
       background: rgba(56, 189, 248, 0.15);
       color: #38bdf8;
       border: 1px solid rgba(56, 189, 248, 0.4);
@@ -307,9 +306,8 @@
       cursor: pointer;
       position: relative;
       transition: all 0.2s ease;
-      vertical-align: baseline;
     }
-
+    
     .mention-tag:hover {
       background: #0284c7;
       color: #ffffff;
@@ -2595,13 +2593,11 @@
         );
     
         if (matchingCard) {
-          const imgHTML = matchingCard.img ? `<img src="${matchingCard.img}" class="mention-preview-thumb" style="width:24px; height:24px; border-radius:4px; object-fit:cover;" />` : '';
+          const imgHTML = matchingCard.img ? `<img src="${matchingCard.img}" class="mention-preview-thumb" style="width:24px; height:24px; border-radius:4px; object-fit:cover; display:inline-block; vertical-align:middle; margin-right:4px;" />` : '';
           
-          // CRITICAL: Keep this entirely on a single line with absolutely NO hidden spacing or line breaks!
-          return `<span class="mention-tag resolved" style="color: #f8fafc; text-decoration: underline; font-weight: 600; cursor: pointer; display: inline; position: relative;" onclick="event.stopPropagation(); if (typeof jumpToSearchResult === 'function') { jumpToSearchResult('${activeBoardId}', '${matchingCard.id}'); }">${matchingCard.title}<div class="mention-preview-popover">${imgHTML}<span class="mention-preview-title">${matchingCard.title}</span></div></span>&#8203;`;
+          return `<span class="mention-tag resolved" onclick="event.stopPropagation(); if (typeof jumpToSearchResult === 'function') { jumpToSearchResult('${activeBoardId}', '${matchingCard.id}'); }">${imgHTML}${matchingCard.title}<div class="mention-preview-popover"><span class="mention-preview-title">${matchingCard.title}</span></div></span>&#8203;`;
         } else {
-          // CRITICAL: Keep this entirely on a single line as well
-          return `<span class="mention-tag unresolved" style="color: #f59e0b; text-decoration: underline; cursor: pointer; display: inline;" onclick="event.stopPropagation(); if (typeof quickCreateCardFromName === 'function') { quickCreateCardFromName('${cleanName}'); }">//${cleanName}//</span>&#8203;`;
+          return `<span class="mention-tag unresolved" onclick="event.stopPropagation(); if (typeof quickCreateCardFromName === 'function') { quickCreateCardFromName('${cleanName}'); }">//${cleanName}//</span>&#8203;`;
         }
       });
     }
