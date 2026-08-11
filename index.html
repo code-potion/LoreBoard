@@ -2099,6 +2099,7 @@
       selectedNodes = [];
       if (typeof renderBoard === 'function') renderBoard();
       if (typeof loadBookNotesIntoPanel === 'function') loadBookNotesIntoPanel();
+      fetchJournalNotes(boardId);
     }
 
     async function renameCurrentBoard() {
@@ -3758,7 +3759,7 @@
                 }
               });
 
-              // 2. Save protected text structure to data layers
+              // 2. Save protected text structure to local data layers
               if (allBoards[activeBoardId]) {
                 allBoards[activeBoardId][storageKey] = intactRawText;
               }
@@ -3783,17 +3784,21 @@
               const lastTextNode = getLastTextNode(el);
 
               if (lastTextNode) {
-                // Pin the cursor right inside the text content block instead of the parent container element boundary
                 newRange.setStart(lastTextNode, lastTextNode.length);
                 newRange.collapse(true);
               } else {
-                // Stable structural fallback placement wrapper
                 newRange.selectNodeContents(el);
                 newRange.collapse(false);
               }
 
               newSel.removeAllRanges();
               newSel.addRange(newRange);
+
+              // Trigger Cloud Save for immediate tag conversion
+              notesSaveTimeout = setTimeout(() => {
+                if (typeof saveJournalNotesToCloud === 'function') saveJournalNotesToCloud();
+              }, 1000);
+
               return;
             }
           }
@@ -3817,14 +3822,77 @@
             allBoards[activeBoardId][storageKey] = currentRawText;
           }
 
+          // Trigger Cloud Save for normal typing
           notesSaveTimeout = setTimeout(() => {
-            if (typeof saveData === 'function') saveData();
+            if (typeof saveJournalNotesToCloud === 'function') saveJournalNotesToCloud();
           }, 1000);
         });
       };
 
       bindContainer('book-quotes-content', 'quotesNote');
       bindContainer('book-general-content', 'generalNote');
+    }
+
+    async function fetchJournalNotes(boardId) {
+      try {
+        const { data, error } = await supabase
+          .from('journal_notes') // Replace with your exact table name if different
+          .select('quotes_note, general_note')
+          .eq('board_id', boardId)
+          .maybeSingle(); // Handles case where a board doesn't have journal entries yet
+    
+        if (error) throw error;
+    
+        // Grab the containers
+        const quotesEl = document.getElementById('book-quotes-content');
+        const generalEl = document.getElementById('book-general-content');
+    
+        if (data) {
+          // 1. Sync local memory state
+          if (allBoards[boardId]) {
+            allBoards[boardId].quotesNote = data.quotes_note || '';
+            allBoards[boardId].generalNote = data.general_note || '';
+          }
+    
+          // 2. Safely render into the editor panels with active tags handled
+          if (quotesEl) quotesEl.innerHTML = formatMentionsToHTML(data.quotes_note || '');
+          if (generalEl) generalEl.innerHTML = formatMentionsToHTML(data.general_note || '');
+        } else {
+          // Clean baseline if it's a completely new board layout
+          if (quotesEl) quotesEl.innerHTML = '';
+          if (generalEl) generalEl.innerHTML = '';
+        }
+      } catch (err) {
+        console.error('Error loading journal notes from Supabase:', err.message);
+      }
+    }
+
+    async function saveJournalNotesToCloud() {
+      const boardId = activeBoardId;
+      if (!boardId || !allBoards[boardId]) return;
+    
+      // Gather our raw text strings directly out of memory cache layers
+      const quotesNote = allBoards[boardId].quotesNote || '';
+      const generalNote = allBoards[boardId].generalNote || '';
+    
+      try {
+        const { error } = await supabase
+          .from('journal_notes')
+          .upsert(
+            { 
+              board_id: boardId, 
+              quotes_note: quotesNote, 
+              general_note: generalNote,
+              updated_at: new Date().toISOString() // optional helper column if you have it
+            }, 
+            { onConflict: 'board_id' } // Tells Supabase to overwrite if board_id already exists
+          );
+    
+        if (error) throw error;
+        console.log('Journal successfully synced to the cloud!');
+      } catch (err) {
+        console.error('Cloud synchronization failed:', err.message);
+      }
     }
     
     /* --- ADDED NEW: CURSOR TRACKING ENGINE FOR LIVE EDITING --- */
