@@ -2270,13 +2270,22 @@
           console.error("Error fetching map pins:", mapPinsError);
         }
 
-        // NEW: Fetch all Canvas Groups
+        // Fetch all Canvas Groups
         const { data: groupsData, error: groupsError } = await supabaseClient
           .from('CanvasGroups')
           .select('*');
 
         if (groupsError) {
           console.error("Error fetching canvas groups:", groupsError);
+        }
+
+        // NEW: Fetch all Timeline Events
+        const { data: timelineData, error: timelineError } = await supabaseClient
+          .from('TimelineEvents')
+          .select('*');
+
+        if (timelineError) {
+          console.error("Error fetching timeline events:", timelineError);
         }
     
         // 5. Populate allBoards object
@@ -2334,7 +2343,7 @@
             desc: p.desc || ''
           }));
 
-          // NEW: Process Canvas Groups
+          // Process Canvas Groups
           const rawGroups = groupsData
             ? groupsData.filter(g => String(g.board_id).trim() === String(board.id).trim())
             : [];
@@ -2348,6 +2357,20 @@
             width: parseFloat(g.width),
             height: parseFloat(g.height)
           }));
+
+          // NEW: Process and Order Timeline Events by position_index
+          const rawTimeline = timelineData
+            ? timelineData.filter(t => String(t.board_id).trim() === String(board.id).trim())
+            : [];
+          
+          const sortedTimeline = rawTimeline.sort((a, b) => a.position_index - b.position_index);
+
+          const formattedTimeline = sortedTimeline.map(t => ({
+            id: t.id,
+            date: t.date_label || '',
+            title: t.title,
+            desc: t.description || ''
+          }));
     
           allBoards[board.id] = {
             id: board.id,
@@ -2359,7 +2382,7 @@
             generalNote: matchingJournal ? (matchingJournal.general_note || '') : (board.general_note || board.generalNote || ''),
             mapImage: board.map_image || board.mapImage || '',
             mapPins: formattedPins,
-            timelineEvents: []
+            timelineEvents: formattedTimeline
           };
         });
     
@@ -2397,7 +2420,7 @@
 
         if (typeof setupNotesAutoSaveListeners === 'function') setupNotesAutoSaveListeners(); 
       
-        console.log("Successfully loaded everything (Groups included)!");
+        console.log("Successfully loaded everything (Groups & Timelines included)!");
 
         setTimeout(() => {
           if (typeof renderConnections === 'function') renderConnections();
@@ -4796,6 +4819,7 @@
     }
 
     /* --- TIMELINE VIEW LOGIC --- */
+
     function openTimelineModal() {
       renderTimelineEvents();
       document.getElementById('timeline-modal').style.display = 'flex';
@@ -4868,7 +4892,7 @@
       document.getElementById('timeline-event-modal').style.display = 'none';
     }
 
-    function saveTimelineEvent() {
+    async function saveTimelineEvent() {
       const id = document.getElementById('edit-timeline-event-id').value;
       const date = document.getElementById('timeline-input-date').value.trim();
       const title = document.getElementById('timeline-input-title').value.trim();
@@ -4880,37 +4904,52 @@
       }
 
       const events = getTimelineEvents();
+      let targetEvent = null;
+      let targetIndex = events.length;
 
       if (id) {
-        const ev = events.find(e => e.id === id);
-        if (ev) {
-          ev.date = date;
-          ev.title = title;
-          ev.desc = desc;
+        targetEvent = events.find(e => e.id === id);
+        if (targetEvent) {
+          targetEvent.date = date;
+          targetEvent.title = title;
+          targetEvent.desc = desc;
+          targetIndex = events.indexOf(targetEvent);
         }
       } else {
-        events.push({
+        targetEvent = {
           id: 'evt_' + Date.now(),
           date,
           title,
           desc
-        });
+        };
+        events.push(targetEvent);
       }
 
-      saveData();
+      // Sync specific item to database
+      if (targetEvent) {
+        await saveTimelineEventToCloud(targetEvent, targetIndex);
+      }
+
+      if (typeof saveData === 'function') saveData();
       renderTimelineEvents();
       closeTimelineEventModal();
     }
 
-    function deleteTimelineEvent() {
+    async function deleteTimelineEvent() {
       const id = document.getElementById('edit-timeline-event-id').value;
       allBoards[activeBoardId].timelineEvents = getTimelineEvents().filter(e => e.id !== id);
-      saveData();
+      
+      // Cloud Delete
+      await deleteTimelineEventFromCloud(id);
+      // Re-index remaining events to prevent index fragmentation gap
+      await syncAllTimelinePositionsToCloud();
+
+      if (typeof saveData === 'function') saveData();
       renderTimelineEvents();
       closeTimelineEventModal();
     }
 
-    function moveTimelineEvent(index, direction) {
+    async function moveTimelineEvent(index, direction) {
       const events = getTimelineEvents();
       const targetIndex = index + direction;
       if (targetIndex < 0 || targetIndex >= events.length) return;
@@ -4919,8 +4958,61 @@
       events[index] = events[targetIndex];
       events[targetIndex] = temp;
 
-      saveData();
+      // Cloud synchronization for the modified ordering sequence
+      await syncAllTimelinePositionsToCloud();
+
+      if (typeof saveData === 'function') saveData();
       renderTimelineEvents();
+    }
+
+    async function saveTimelineEventToCloud(eventObj, index) {
+      const boardId = activeBoardId;
+      if (!boardId) return;
+    
+      const { data: { user }, error: authError } = await supabaseClient.auth.getUser();
+      if (authError || !user) return;
+    
+      try {
+        const { error } = await supabaseClient
+          .from('TimelineEvents')
+          .upsert({
+            id: eventObj.id,
+            board_id: boardId,
+            user_id: user.id,
+            date_label: eventObj.date || '',
+            title: eventObj.title,
+            description: eventObj.desc || '',
+            position_index: parseInt(index)
+          });
+        if (error) throw error;
+      } catch (err) {
+        console.error('Failed to sync timeline event to cloud:', err.message);
+      }
+    }
+    
+    async function syncAllTimelinePositionsToCloud() {
+      const events = getTimelineEvents();
+      if (!events || events.length === 0) return;
+    
+      try {
+        const promises = events.map((ev, idx) => saveTimelineEventToCloud(ev, idx));
+        await Promise.all(promises);
+        console.log("Successfully synchronized timeline positioning order.");
+      } catch (err) {
+        console.error("Error batch syncing timeline sequence:", err);
+      }
+    }
+    
+    async function deleteTimelineEventFromCloud(eventId) {
+      try {
+        const { error } = await supabaseClient
+          .from('TimelineEvents')
+          .delete()
+          .eq('id', eventId);
+        if (error) throw error;
+      } catch (err) {
+        console.error('Failed to delete timeline event from cloud:', err.message);
+      }
     }
   </script>
 </body>
