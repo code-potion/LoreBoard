@@ -2247,6 +2247,15 @@
         if (categoriesError) {
           console.error("Error fetching categories:", categoriesError);
         }
+
+        // NEW: Fetch all Journal records for these boards
+        const { data: journalData, error: journalError } = await supabaseClient
+          .from('Journal')
+          .select('*');
+
+        if (journalError) {
+          console.error("Error fetching journal entries:", journalError);
+        }
     
         // 5. Populate allBoards object using the exact IDs from the database
         allBoards = {};
@@ -2282,6 +2291,11 @@
             style: c.style || 'dashed',
             width: c.width || '4'
           }));
+          
+          // Match journal entries to this board if they exist
+          const matchingJournal = journalData
+            ? journalData.find(j => String(j.board_id).trim() === String(board.id).trim())
+            : null;
     
           allBoards[board.id] = {
             id: board.id,
@@ -2289,8 +2303,9 @@
             nodes: formattedNodes,
             connections: formattedConnections,
             groups: [],
-            quotesNote: board.quotes_note || board.quotesNote || '', 
-            generalNote: board.general_note || board.generalNote || '',
+            // Fall back to matchingJournal data columns first, then board fields, then empty strings
+            quotesNote: matchingJournal ? (matchingJournal.quotes_note || '') : (board.quotes_note || board.quotesNote || ''), 
+            generalNote: matchingJournal ? (matchingJournal.general_note || '') : (board.general_note || board.generalNote || ''),
             mapImage: board.mapImage || '',
             mapPins: [],
             timelineEvents: []
@@ -2316,6 +2331,20 @@
         renderBoardDropdown();
         if (typeof renderBoard === 'function') renderBoard();
         if (typeof loadBookNotesIntoPanel === 'function') loadBookNotesIntoPanel();
+
+        // NEW: Populate the initial active board's journal UI elements with active mention processing
+        const quotesEl = document.getElementById('book-quotes-content');
+        const generalEl = document.getElementById('book-general-content');
+        const initialBoard = allBoards[activeBoardId];
+        
+        if (initialBoard) {
+          if (quotesEl && typeof formatMentionsToHTML === 'function') {
+            quotesEl.innerHTML = formatMentionsToHTML(initialBoard.quotesNote || '');
+          }
+          if (generalEl && typeof formatMentionsToHTML === 'function') {
+            generalEl.innerHTML = formatMentionsToHTML(initialBoard.generalNote || '');
+          }
+        }
 
         // 8. Notes mention Initialize
         if (typeof setupNotesAutoSaveListeners === 'function') setupNotesAutoSaveListeners(); 
@@ -3835,8 +3864,9 @@
 
     async function fetchJournalNotes(boardId) {
       try {
-        const { data, error } = await supabase
-          .from('journal_notes') // Replace with your exact table name if different
+        // FIXED: Swapped to supabaseClient and matched the exact 'Journal' table name capitalization
+        const { data, error } = await supabaseClient
+          .from('Journal') 
           .select('quotes_note, general_note')
           .eq('board_id', boardId)
           .maybeSingle(); // Handles case where a board doesn't have journal entries yet
@@ -3861,6 +3891,12 @@
           // Clean baseline if it's a completely new board layout
           if (quotesEl) quotesEl.innerHTML = '';
           if (generalEl) generalEl.innerHTML = '';
+          
+          // Reset local memory baseline too
+          if (allBoards[boardId]) {
+            allBoards[boardId].quotesNote = '';
+            allBoards[boardId].generalNote = '';
+          }
         }
       } catch (err) {
         console.error('Error loading journal notes from Supabase:', err.message);
@@ -3871,25 +3907,31 @@
       const boardId = activeBoardId;
       if (!boardId || !allBoards[boardId]) return;
     
-      // Gather our raw text strings directly out of memory cache layers
+      // Make sure we use supabaseClient here too
+      const { data: { user }, error: authError } = await supabaseClient.auth.getUser();
+      if (authError || !user) {
+        console.error("Authentication check failed. Cannot save journal to cloud.");
+        return;
+      }
+    
       const quotesNote = allBoards[boardId].quotesNote || '';
       const generalNote = allBoards[boardId].generalNote || '';
     
       try {
-        const { error } = await supabase
-          .from('journal_notes')
+        const { error } = await supabaseClient
+          .from('Journal')
           .upsert(
             { 
               board_id: boardId, 
+              user_id: user.id, 
               quotes_note: quotesNote, 
-              general_note: generalNote,
-              updated_at: new Date().toISOString() // optional helper column if you have it
+              general_note: generalNote
             }, 
-            { onConflict: 'board_id' } // Tells Supabase to overwrite if board_id already exists
+            { onConflict: 'board_id' }
           );
     
         if (error) throw error;
-        console.log('Journal successfully synced to the cloud!');
+        console.log('Journal successfully synchronized to Supabase cloud!');
       } catch (err) {
         console.error('Cloud synchronization failed:', err.message);
       }
