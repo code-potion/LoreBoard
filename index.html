@@ -2099,7 +2099,11 @@
       selectedNodes = [];
       if (typeof renderBoard === 'function') renderBoard();
       if (typeof loadBookNotesIntoPanel === 'function') loadBookNotesIntoPanel();
-      fetchJournalNotes(boardId);
+      if (typeof fetchJournalNotes === 'function') fetchJournalNotes(boardId);
+      
+      // NEW: Clear old panning layouts and refresh map assets for the new board choice
+      if (typeof resetMapView === 'function') resetMapView();
+      if (typeof renderMap === 'function') renderMap();
     }
 
     async function renameCurrentBoard() {
@@ -2248,7 +2252,7 @@
           console.error("Error fetching categories:", categoriesError);
         }
 
-        // NEW: Fetch all Journal records for these boards
+        // Fetch all Journal records for these boards
         const { data: journalData, error: journalError } = await supabaseClient
           .from('Journal')
           .select('*');
@@ -2256,12 +2260,20 @@
         if (journalError) {
           console.error("Error fetching journal entries:", journalError);
         }
+
+        // NEW: Fetch all Map Pins for these boards from the cloud
+        const { data: mapPinsData, error: mapPinsError } = await supabaseClient
+          .from('MapPins')
+          .select('*');
+
+        if (mapPinsError) {
+          console.error("Error fetching map pins:", mapPinsError);
+        }
     
         // 5. Populate allBoards object using the exact IDs from the database
         allBoards = {};
     
         boardsData.forEach(board => {
-          // Robust string matching to catch UUID vs Number anomalies
           const rawCards = cardsData 
             ? cardsData.filter(card => String(card.board_id).trim() === String(board.id).trim())
             : [];
@@ -2292,10 +2304,23 @@
             width: c.width || '4'
           }));
           
-          // Match journal entries to this board if they exist
           const matchingJournal = journalData
             ? journalData.find(j => String(j.board_id).trim() === String(board.id).trim())
             : null;
+
+          // NEW: Filter out and format pins belonging to this specific board
+          const rawPins = mapPinsData
+            ? mapPinsData.filter(pin => String(pin.board_id).trim() === String(board.id).trim())
+            : [];
+
+          const formattedPins = rawPins.map(p => ({
+            id: p.id,
+            xPercent: p.x_percent,
+            yPercent: p.y_percent,
+            cardId: p.card_id,
+            title: p.title || '',
+            desc: p.desc || ''
+          }));
     
           allBoards[board.id] = {
             id: board.id,
@@ -2303,11 +2328,11 @@
             nodes: formattedNodes,
             connections: formattedConnections,
             groups: [],
-            // Fall back to matchingJournal data columns first, then board fields, then empty strings
             quotesNote: matchingJournal ? (matchingJournal.quotes_note || '') : (board.quotes_note || board.quotesNote || ''), 
             generalNote: matchingJournal ? (matchingJournal.general_note || '') : (board.general_note || board.generalNote || ''),
-            mapImage: board.mapImage || '',
-            mapPins: [],
+            // Pull the cloud text field value seamlessly 
+            mapImage: board.map_image || board.mapImage || '',
+            mapPins: formattedPins,
             timelineEvents: []
           };
         });
@@ -2331,8 +2356,8 @@
         renderBoardDropdown();
         if (typeof renderBoard === 'function') renderBoard();
         if (typeof loadBookNotesIntoPanel === 'function') loadBookNotesIntoPanel();
+        if (typeof renderMap === 'function') renderMap(); // Update the map visualization on start
 
-        // NEW: Populate the initial active board's journal UI elements with active mention processing
         const quotesEl = document.getElementById('book-quotes-content');
         const generalEl = document.getElementById('book-general-content');
         const initialBoard = allBoards[activeBoardId];
@@ -4258,13 +4283,10 @@
       const mapModal = document.getElementById('map-modal');
       const mapImg = document.getElementById('map-image');
     
-      // Check where your board data is stored
-      const currentBoard = (typeof activeBoard !== 'undefined' && activeBoard) 
-                            ? activeBoard 
-                            : (typeof boards !== 'undefined' && typeof currentBoardId !== 'undefined' ? boards[currentBoardId] : null);
+      const board = allBoards[activeBoardId];
     
-      if (mapImg && currentBoard && currentBoard.mapUrl) {
-        mapImg.src = currentBoard.mapUrl;
+      if (mapImg && board && (board.mapImage || board.mapUrl)) {
+        mapImg.src = board.mapImage || board.mapUrl;
         const deleteBtn = document.getElementById('delete-map-btn');
         if (deleteBtn) deleteBtn.style.display = 'inline-block';
       }
@@ -4279,9 +4301,14 @@
     function handleMapUpload(input) {
       if (input.files && input.files[0]) {
         const reader = new FileReader();
-        reader.onload = (e) => {
-          allBoards[activeBoardId].mapImage = e.target.result;
-          saveData();
+        reader.onload = async (e) => {
+          const imageSrc = e.target.result;
+          allBoards[activeBoardId].mapImage = imageSrc;
+          
+          // Trigger Cloud Sync for Background Image
+          await saveMapImageToCloud(imageSrc);
+          
+          if (typeof saveData === 'function') saveData();
           renderMap();
         };
         reader.readAsDataURL(input.files[0]);
@@ -4293,37 +4320,45 @@
       if (url && url.trim()) {
         const cleanUrl = url.trim();
         
-        // 1. Update the image on screen
         const mapImg = document.getElementById('map-image');
         if (mapImg) {
           mapImg.src = cleanUrl;
         }
     
-        // 2. Save the URL to your current active board's data object
-        if (typeof activeBoard !== 'undefined' && activeBoard) {
-          activeBoard.mapUrl = cleanUrl;
-        } else if (typeof boards !== 'undefined' && typeof currentBoardId !== 'undefined' && boards[currentBoardId]) {
-          boards[currentBoardId].mapUrl = cleanUrl;
+        if (allBoards[activeBoardId]) {
+          allBoards[activeBoardId].mapImage = cleanUrl;
         }
     
-        // 3. Save to local storage so re-opening the map keeps it
-        if (typeof saveBoardsToLocalStorage === 'function') {
-          saveBoardsToLocalStorage();
-        } else if (typeof saveState === 'function') {
-          saveState();
-        }
+        // Trigger Cloud Sync for Background URL String
+        saveMapImageToCloud(cleanUrl);
     
-        // 4. Show the delete button
+        if (typeof saveData === 'function') saveData();
+    
         const deleteBtn = document.getElementById('delete-map-btn');
         if (deleteBtn) deleteBtn.style.display = 'inline-block';
       }
     }
     
-    function deleteActiveMap() {
-      if (confirm("Delete map image and cleared pins?")) {
-        allBoards[activeBoardId].mapImage = '';
-        allBoards[activeBoardId].mapPins = [];
-        saveData();
+    async function deleteActiveMap() {
+      if (confirm("Delete map image and clear all pins?")) {
+        const boardId = activeBoardId;
+        allBoards[boardId].mapImage = '';
+        allBoards[boardId].mapPins = [];
+        
+        // Clear background image in cloud
+        await saveMapImageToCloud('');
+        
+        // Delete all pins linked to this board from the cloud table
+        try {
+          await supabaseClient
+            .from('MapPins')
+            .delete()
+            .eq('board_id', boardId);
+        } catch(e) {
+          console.error("Error clearing board pins:", e);
+        }
+
+        if (typeof saveData === 'function') saveData();
         renderMap();
       }
     }
@@ -4333,7 +4368,7 @@
       const deleteBtn = document.getElementById('delete-map-btn');
       const board = allBoards[activeBoardId];
 
-      if (board.mapImage) {
+      if (board && board.mapImage) {
         mapImg.src = board.mapImage;
         deleteBtn.style.display = 'inline-block';
       } else {
@@ -4392,7 +4427,7 @@
 
     function updateMapTransform() {
       const canvas = document.getElementById('map-canvas');
-      canvas.style.transform = `translate(${mapPanX}px, ${mapPanY}px) scale(${mapScale})`;
+      if (canvas) canvas.style.transform = `translate(${mapPanX}px, ${mapPanY}px) scale(${mapScale})`;
     }
 
     function toggleMapDropPinMode() {
@@ -4416,7 +4451,7 @@
     function handleMapClick(e) {
       if (!isDropPinMode) return;
       const img = document.getElementById('map-image');
-      if (!img.src) return;
+      if (!img || !img.src) return;
 
       const rect = img.getBoundingClientRect();
       const xPercent = ((e.clientX - rect.left) / rect.width) * 100;
@@ -4435,9 +4470,12 @@
 
     function renderMapPins() {
       const layer = document.getElementById('map-pins-layer');
+      if (!layer) return;
       layer.innerHTML = '';
 
-      getMapPins().forEach(pin => {
+      const pins = (allBoards[activeBoardId] && allBoards[activeBoardId].mapPins) ? allBoards[activeBoardId].mapPins : [];
+
+      pins.forEach(pin => {
         const pinEl = document.createElement('div');
         pinEl.className = 'map-pin-container';
         pinEl.style.left = `${pin.xPercent}%`;
@@ -4445,7 +4483,7 @@
 
         let cardTagHTML = '';
         if (pin.cardId) {
-          const card = getNodes().find(n => n.id === pin.cardId);
+          const card = (typeof getNodes === 'function') ? getNodes().find(n => n.id === pin.cardId) : [];
           if (card) {
             cardTagHTML = `
               <div class="map-pin-card-tag">
@@ -4481,8 +4519,9 @@
 
     function renderCardPickerList(filterText = '') {
       const container = document.getElementById('card-picker-list');
+      if (!container) return;
       container.innerHTML = '';
-      const nodes = getNodes();
+      const nodes = (typeof getNodes === 'function') ? getNodes() : [];
 
       const filtered = nodes.filter(n => n.title.toLowerCase().includes(filterText.toLowerCase()));
 
@@ -4496,7 +4535,7 @@
         item.className = 'card-picker-item';
         item.onclick = () => selectCardForPin(node.id);
 
-        const nodeFactions = ensureNodeFactions(node);
+        const nodeFactions = (typeof ensureNodeFactions === 'function') ? ensureNodeFactions(node) : [];
         const factionNames = nodeFactions.map(fId => categories.find(c => c.id === fId)?.name).filter(Boolean).join(', ') || 'General';
 
         item.innerHTML = `
@@ -4532,33 +4571,44 @@
     }
 
     function savePin(cardId, title, desc) {
-      const pins = getMapPins();
+      if (!allBoards[activeBoardId]) return;
+      if (!allBoards[activeBoardId].mapPins) allBoards[activeBoardId].mapPins = [];
+      
+      const pins = allBoards[activeBoardId].mapPins;
+      let targetPin = null;
 
       if (editingPinId) {
-        const pin = pins.find(p => p.id === editingPinId);
-        if (pin) {
-          pin.cardId = cardId;
-          pin.title = title;
-          pin.desc = desc;
+        targetPin = pins.find(p => p.id === editingPinId);
+        if (targetPin) {
+          targetPin.cardId = cardId;
+          targetPin.title = title;
+          targetPin.desc = desc;
         }
       } else if (pendingPinCoords) {
-        pins.push({
+        targetPin = {
           id: 'pin_' + Date.now(),
           xPercent: pendingPinCoords.xPercent,
           yPercent: pendingPinCoords.yPercent,
           cardId: cardId,
           title: title,
           desc: desc
-        });
+        };
+        pins.push(targetPin);
       }
 
-      saveData();
+      // Cloud Push individual pin payload updates
+      if (targetPin) {
+        saveMapPinToCloud(targetPin);
+      }
+
+      if (typeof saveData === 'function') saveData();
       renderMapPins();
       closeCardPicker();
     }
 
     function editMapPin(pinId) {
-      const pin = getMapPins().find(p => p.id === pinId);
+      if (!allBoards[activeBoardId] || !allBoards[activeBoardId].mapPins) return;
+      const pin = allBoards[activeBoardId].mapPins.find(p => p.id === pinId);
       if (!pin) return;
 
       editingPinId = pinId;
@@ -4573,9 +4623,76 @@
     }
 
     function deleteMapPin(pinId) {
-      allBoards[activeBoardId].mapPins = getMapPins().filter(p => p.id !== pinId);
-      saveData();
+      if (!allBoards[activeBoardId] || !allBoards[activeBoardId].mapPins) return;
+      allBoards[activeBoardId].mapPins = allBoards[activeBoardId].mapPins.filter(p => p.id !== pinId);
+      
+      // Remove from Cloud
+      deleteMapPinFromCloud(pinId);
+      
+      if (typeof saveData === 'function') saveData();
       renderMapPins();
+    }
+    // The new functions
+    async function saveMapImageToCloud(imageUrl) {
+      const boardId = activeBoardId;
+      if (!boardId) return;
+    
+      try {
+        const { error } = await supabaseClient
+          .from('Boards')
+          .update({ map_image: imageUrl })
+          .eq('id', boardId);
+    
+        if (error) throw error;
+        console.log('Map background successfully synced to cloud!');
+      } catch (err) {
+        console.error('Failed to sync map background:', err.message);
+      }
+    }
+    
+    async function saveMapPinToCloud(pinObject) {
+      const boardId = activeBoardId;
+      if (!boardId) return;
+    
+      const { data: { user }, error: authError } = await supabaseClient.auth.getUser();
+      if (authError || !user) {
+        console.error("Auth check failed. Cannot save pin.");
+        return;
+      }
+    
+      try {
+        const { error } = await supabaseClient
+          .from('MapPins')
+          .upsert({
+            id: pinObject.id,
+            board_id: boardId,
+            user_id: user.id,
+            x_percent: pinObject.xPercent,
+            y_percent: pinObject.yPercent,
+            card_id: pinObject.cardId,
+            title: pinObject.title,
+            desc: pinObject.desc
+          });
+    
+        if (error) throw error;
+        console.log('Pin successfully synced to cloud!');
+      } catch (err) {
+        console.error('Failed to sync pin:', err.message);
+      }
+    }
+    
+    async function deleteMapPinFromCloud(pinId) {
+      try {
+        const { error } = await supabaseClient
+          .from('MapPins')
+          .delete()
+          .eq('id', pinId);
+    
+        if (error) throw error;
+        console.log('Pin successfully deleted from cloud!');
+      } catch (err) {
+        console.error('Failed to delete pin from cloud:', err.message);
+      }
     }
 
     /* --- TIMELINE VIEW LOGIC --- */
