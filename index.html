@@ -2252,7 +2252,7 @@
           console.error("Error fetching categories:", categoriesError);
         }
 
-        // Fetch all Journal records for these boards
+        // Fetch all Journal records
         const { data: journalData, error: journalError } = await supabaseClient
           .from('Journal')
           .select('*');
@@ -2261,7 +2261,7 @@
           console.error("Error fetching journal entries:", journalError);
         }
 
-        // NEW: Fetch all Map Pins for these boards from the cloud
+        // Fetch all Map Pins
         const { data: mapPinsData, error: mapPinsError } = await supabaseClient
           .from('MapPins')
           .select('*');
@@ -2269,11 +2269,21 @@
         if (mapPinsError) {
           console.error("Error fetching map pins:", mapPinsError);
         }
+
+        // NEW: Fetch all Canvas Groups
+        const { data: groupsData, error: groupsError } = await supabaseClient
+          .from('CanvasGroups')
+          .select('*');
+
+        if (groupsError) {
+          console.error("Error fetching canvas groups:", groupsError);
+        }
     
-        // 5. Populate allBoards object using the exact IDs from the database
+        // 5. Populate allBoards object
         allBoards = {};
     
         boardsData.forEach(board => {
+          // Process Cards
           const rawCards = cardsData 
             ? cardsData.filter(card => String(card.board_id).trim() === String(board.id).trim())
             : [];
@@ -2290,6 +2300,7 @@
             img: c.img || ''
           }));
 
+          // Process Connections
           const rawConnections = connectionsData
             ? connectionsData.filter(conn => String(conn.board_id).trim() === String(board.id).trim())
             : [];
@@ -2304,11 +2315,12 @@
             width: c.width || '4'
           }));
           
+          // Process Journal
           const matchingJournal = journalData
             ? journalData.find(j => String(j.board_id).trim() === String(board.id).trim())
             : null;
 
-          // NEW: Filter out and format pins belonging to this specific board
+          // Process Pins
           const rawPins = mapPinsData
             ? mapPinsData.filter(pin => String(pin.board_id).trim() === String(board.id).trim())
             : [];
@@ -2321,26 +2333,39 @@
             title: p.title || '',
             desc: p.desc || ''
           }));
+
+          // NEW: Process Canvas Groups
+          const rawGroups = groupsData
+            ? groupsData.filter(g => String(g.board_id).trim() === String(board.id).trim())
+            : [];
+          
+          const formattedGroups = rawGroups.map(g => ({
+            id: g.id,
+            title: g.title,
+            color: g.color,
+            x: parseFloat(g.x),
+            y: parseFloat(g.y),
+            width: parseFloat(g.width),
+            height: parseFloat(g.height)
+          }));
     
           allBoards[board.id] = {
             id: board.id,
             title: board.title,
             nodes: formattedNodes,
             connections: formattedConnections,
-            groups: [],
+            groups: formattedGroups,
             quotesNote: matchingJournal ? (matchingJournal.quotes_note || '') : (board.quotes_note || board.quotesNote || ''), 
             generalNote: matchingJournal ? (matchingJournal.general_note || '') : (board.general_note || board.generalNote || ''),
-            // Pull the cloud text field value seamlessly 
             mapImage: board.map_image || board.mapImage || '',
             mapPins: formattedPins,
             timelineEvents: []
           };
         });
     
-        // Force activeBoardId to match the actual database ID key we just registered
+        // 6. Finalize UI State
         activeBoardId = boardsData[0].id;
 
-        // 6. Reinitialize global categories array safely
         if (categoriesData && categoriesData.length > 0) {
           const activeBoardCategories = categoriesData.filter(cat => String(cat.board_id).trim() === String(activeBoardId).trim());
           if (activeBoardCategories.length > 0) {
@@ -2352,11 +2377,10 @@
           }
         }
     
-        // 7. Render UI components
         renderBoardDropdown();
         if (typeof renderBoard === 'function') renderBoard();
         if (typeof loadBookNotesIntoPanel === 'function') loadBookNotesIntoPanel();
-        if (typeof renderMap === 'function') renderMap(); // Update the map visualization on start
+        if (typeof renderMap === 'function') renderMap();
 
         const quotesEl = document.getElementById('book-quotes-content');
         const generalEl = document.getElementById('book-general-content');
@@ -2371,14 +2395,12 @@
           }
         }
 
-        // 8. Notes mention Initialize
         if (typeof setupNotesAutoSaveListeners === 'function') setupNotesAutoSaveListeners(); 
       
-        console.log("Successfully loaded everything and turned on notes listeners!");
+        console.log("Successfully loaded everything (Groups included)!");
 
         setTimeout(() => {
           if (typeof renderConnections === 'function') renderConnections();
-          console.log("Delayed connection redraw executed.");
         }, 100);
     
       } catch (err) {
@@ -2713,7 +2735,8 @@
     }
 
     /* --- GROUP / SECTION CONTAINER CREATION & LOGIC --- */
-    function createGroupFromInput() {
+    
+    async function createGroupFromInput() {
       const title = document.getElementById('group-title').value.trim() || 'New Group';
       const color = document.getElementById('group-color').value;
 
@@ -2728,7 +2751,11 @@
       };
 
       getGroups().push(newGroup);
-      saveData();
+      
+      // Cloud Sync New Group
+      await saveGroupToCloud(newGroup);
+
+      if (typeof saveData === 'function') saveData();
       renderBoard();
 
       document.getElementById('group-title').value = '';
@@ -2751,7 +2778,7 @@
       document.getElementById('group-edit-modal').style.display = 'none';
     }
 
-    function saveGroupEdit() {
+    async function saveGroupEdit() {
       const id = document.getElementById('edit-group-id').value;
       const group = getGroups().find(g => g.id === id);
       if (!group) return;
@@ -2761,15 +2788,22 @@
       group.width = Math.max(120, parseInt(document.getElementById('edit-group-width').value) || 200);
       group.height = Math.max(120, parseInt(document.getElementById('edit-group-height').value) || 200);
 
-      saveData();
+      // Cloud Sync Updates
+      await saveGroupToCloud(group);
+
+      if (typeof saveData === 'function') saveData();
       renderBoard();
       closeGroupEditModal();
     }
 
-    function deleteCurrentGroup() {
+    async function deleteCurrentGroup() {
       const id = document.getElementById('edit-group-id').value;
       allBoards[activeBoardId].groups = getGroups().filter(g => g.id !== id);
-      saveData();
+      
+      // Delete from Cloud
+      await deleteGroupFromCloud(id);
+
+      if (typeof saveData === 'function') saveData();
       renderBoard();
       closeGroupEditModal();
     }
@@ -2841,13 +2875,79 @@
         }
       });
 
-      window.addEventListener('mouseup', () => {
+      window.addEventListener('mouseup', async () => {
         if (isDraggingGroup || isResizing) {
           isDraggingGroup = false;
           isResizing = false;
-          saveData();
+          
+          // 1. Sync the group container position/dimension to cloud
+          await saveGroupToCloud(group);
+          
+          // 2. Batch sync any dragged character cards inside it to cloud
+          const movedNodes = initialNodesPos.map(item => item.node);
+          if (movedNodes.length > 0) {
+            await syncMovedNodesToCloud(movedNodes);
+          }
+
+          if (typeof saveData === 'function') saveData();
         }
       });
+    }
+
+    async function saveGroupToCloud(groupObj) {
+      const boardId = activeBoardId;
+      if (!boardId) return;
+    
+      const { data: { user }, error: authError } = await supabaseClient.auth.getUser();
+      if (authError || !user) return;
+    
+      try {
+        const { error } = await supabaseClient
+          .from('CanvasGroups')
+          .upsert({
+            id: groupObj.id,
+            board_id: boardId,
+            user_id: user.id,
+            title: groupObj.title,
+            color: groupObj.color,
+            x: parseFloat(groupObj.x),
+            y: parseFloat(groupObj.y),
+            width: parseFloat(groupObj.width),
+            height: parseFloat(groupObj.height)
+          });
+        if (error) throw error;
+      } catch (err) {
+        console.error('Failed to sync group to cloud:', err.message);
+      }
+    }
+    
+    async function deleteGroupFromCloud(groupId) {
+      try {
+        const { error } = await supabaseClient
+          .from('CanvasGroups')
+          .delete()
+          .eq('id', groupId);
+        if (error) throw error;
+      } catch (err) {
+        console.error('Failed to delete group from cloud:', err.message);
+      }
+    }
+    
+    // Custom batch helper to sync character cards moved by a group drag
+    async function syncMovedNodesToCloud(nodesArray) {
+      if (!nodesArray || nodesArray.length === 0) return;
+      try {
+        const promises = nodesArray.map(node => 
+          supabaseClient
+            .from('Cards')
+            .update({ x: parseFloat(node.x), y: parseFloat(node.y) })
+            .eq('id', node.id)
+        );
+        await Promise.all(promises);
+        console.log(`Synced ${nodesArray.length} moved character cards to cloud.`);
+      } catch (err) {
+        console.error('Failed batch syncing moved character nodes:', err);
+      }
     }
 
     /* --- BOARD RENDERING & CANVAS --- */
