@@ -3895,28 +3895,23 @@
     let notesSaveTimeout = null;
     
     function setupNotesAutoSaveListeners() {
-      // Helper function to safely extract plain text and newlines without browser node leaks
       const getCleanRawText = (container) => {
         const clone = container.cloneNode(true);
         
-        // 1. Turn all span elements into flat raw tag strings inside the clone
         clone.querySelectorAll('.mention-tag-simple').forEach(span => {
           const tagName = span.getAttribute('data-tag-name') || span.textContent;
           const cleanName = tagName.replace(/\/\//g, '').trim();
           span.replaceWith(`//${cleanName}//`);
         });
 
-        // 2. Explicitly map line breaks (<br>) to newline characters
         clone.querySelectorAll('br').forEach(br => br.replaceWith('\n'));
         
-        // 3. Handle line block elements (div, p) by adding layout newlines
         clone.querySelectorAll('div, p').forEach(block => {
           if (block.previousSibling) {
             block.insertBefore(document.createTextNode('\n'), block.firstChild);
           }
         });
 
-        // 4. Extract total text content and clean up zero-width space characters (\u200B)
         return clone.textContent.replace(/\u200B/g, '').trim();
       };
 
@@ -3924,7 +3919,7 @@
         const el = document.getElementById(elementId);
         if (!el) return;
 
-        // Parent level click delegation for bulletproof quick-create links
+        // Clean up any old listeners to prevent stacking handles
         el.removeEventListener('click', el._mentionClickHandler);
         el._mentionClickHandler = (event) => {
           const target = event.target.closest('.mention-tag-simple');
@@ -3935,12 +3930,16 @@
             if (target.classList.contains('resolved')) {
               const boardId = target.getAttribute('data-board-id');
               const cardId = target.getAttribute('data-card-id');
-              if (typeof jumpToSearchResult === 'function') {
+              if (typeof window.jumpToSearchResult === 'function') {
+                window.jumpToSearchResult(boardId, cardId);
+              } else if (typeof jumpToSearchResult === 'function') {
                 jumpToSearchResult(boardId, cardId);
               }
             } else if (target.classList.contains('unresolved')) {
               const nameAttr = target.getAttribute('data-tag-name');
-              if (typeof quickCreateCardFromName === 'function') {
+              if (typeof window.quickCreateCardFromName === 'function') {
+                window.quickCreateCardFromName(nameAttr);
+              } else if (typeof quickCreateCardFromName === 'function') {
                 quickCreateCardFromName(nameAttr);
               }
             }
@@ -3949,54 +3948,68 @@
         el.addEventListener('click', el._mentionClickHandler);
 
         el.addEventListener('input', (e) => {
+          // If we are currently mutating the DOM layout, exit immediately to prevent double-tagging!
+          if (isInsertingTag) return;
+
           clearTimeout(notesSaveTimeout);
 
           const selection = window.getSelection();
           if (selection.rangeCount > 0) {
             const range = selection.getRangeAt(0);
             const currentNode = range.startContainer;
-            const textBeforeCursor = currentNode.textContent.substring(0, range.startOffset);
+            
+            // Only check text nodes to prevent matching HTML tags accidentally
+            if (currentNode.nodeType === Node.TEXT_NODE) {
+              const textBeforeCursor = currentNode.textContent.substring(0, range.startOffset);
+              const match = textBeforeCursor.match(/\/\/([^\/]+)\/\/$/);
 
-            const match = textBeforeCursor.match(/\/\/([^\/]+)\/\/$/);
+              if (match) {
+                // Set the guard flag to true before making alterations
+                isInsertingTag = true;
 
-            if (match) {
-              const fullTagString = match[0]; 
-              const tagName = match[1].trim();
+                const fullTagString = match[0]; 
+                const tagName = match[1].trim();
 
-              const currentBoard = allBoards[activeBoardId];
-              const activeCards = currentBoard && currentBoard.nodes ? currentBoard.nodes : [];
-              const matchingCard = activeCards.find(n => 
-                (n.title || '').trim().toLowerCase() === tagName.toLowerCase()
-              );
+                const currentBoard = allBoards[activeBoardId];
+                const activeCards = currentBoard && currentBoard.nodes ? currentBoard.nodes : [];
+                const matchingCard = activeCards.find(n => 
+                  (n.title || '').trim().toLowerCase() === tagName.toLowerCase()
+                );
 
-              let htmlContent = '';
-              if (matchingCard) {
-                htmlContent = `<span class="mention-tag-simple resolved" contenteditable="false" data-board-id="${activeBoardId}" data-card-id="${matchingCard.id}" style="color: #4fa3ff; text-decoration: underline; cursor: pointer; display: inline-block;">${matchingCard.title}</span>&#8203;`;
-              } else {
-                htmlContent = `<span class="mention-tag-simple unresolved" contenteditable="false" data-tag-name="${tagName}" style="color: #aaaaaa; text-decoration: dashed underline; cursor: pointer; display: inline-block;">${tagName}</span>&#8203;`;
+                let htmlContent = '';
+                // Added inline pointer-events to force click pass-throughs natively
+                if (matchingCard) {
+                  htmlContent = `<span class="mention-tag-simple resolved" contenteditable="false" data-board-id="${activeBoardId}" data-card-id="${matchingCard.id}" style="color: #4fa3ff; text-decoration: underline; cursor: pointer; display: inline-block; pointer-events: auto;">${matchingCard.title}</span>&#8203;`;
+                } else {
+                  htmlContent = `<span class="mention-tag-simple unresolved" contenteditable="false" data-tag-name="${tagName}" style="color: #aaaaaa; text-decoration: dashed underline; cursor: pointer; display: inline-block; pointer-events: auto;">${tagName}</span>&#8203;`;
+                }
+
+                const temporaryContainer = document.createElement('div');
+                temporaryContainer.innerHTML = htmlContent;
+                
+                const fragment = document.createDocumentFragment();
+                while (temporaryContainer.firstChild) {
+                  fragment.appendChild(temporaryContainer.firstChild);
+                }
+
+                // Cleanly wipe the raw string layout
+                range.setStart(currentNode, range.startOffset - fullTagString.length);
+                range.setEnd(currentNode, range.startOffset);
+                range.deleteContents();
+                
+                range.insertNode(fragment);
+
+                // Move caret cleanly outside the tag element boundary
+                range.collapse(false); 
+                selection.removeAllRanges();
+                selection.addRange(range);
+
+                // Reset the guard flag after the DOM mutations finish stabilizing
+                setTimeout(() => { isInsertingTag = false; }, 10);
               }
-
-              const temporaryContainer = document.createElement('div');
-              temporaryContainer.innerHTML = htmlContent;
-              
-              const fragment = document.createDocumentFragment();
-              while (temporaryContainer.firstChild) {
-                fragment.appendChild(temporaryContainer.firstChild);
-              }
-
-              range.setStart(currentNode, range.startOffset - fullTagString.length);
-              range.setEnd(currentNode, range.startOffset);
-              range.deleteContents();
-              
-              range.insertNode(fragment);
-
-              range.collapse(false); 
-              selection.removeAllRanges();
-              selection.addRange(range);
             }
           }
 
-          // Extract using the clean flattener function
           const currentRawText = getCleanRawText(el);
 
           if (allBoards[activeBoardId]) {
