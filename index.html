@@ -3938,7 +3938,7 @@
         el.addEventListener('input', (e) => {
           clearTimeout(notesSaveTimeout);
 
-          // 1. Instantly capture the text baseline using the cursor position tracking engine
+          // 1. Instantly capture text baseline
           const selection = window.getSelection();
           let caretOffset = 0;
           
@@ -3950,13 +3950,14 @@
             caretOffset = preCaretRange.toString().length;
           }
 
-          // 2. Reconstruct the clean, raw string structure
+          // 2. Parse out the raw text string smoothly
           let currentRawText = "";
           el.childNodes.forEach(node => {
             if (node.nodeType === Node.TEXT_NODE) {
               currentRawText += node.textContent;
             } else if (node.nodeType === Node.ELEMENT_NODE) {
               if (node.classList.contains('mention-tag')) {
+                // Keep the raw tag representation safe
                 const cleanName = node.innerText.replace(/\/\//g, '').trim();
                 currentRawText += `//${cleanName}//`;
               } else if (node.tagName === 'BR') {
@@ -3967,27 +3968,17 @@
             }
           });
 
-          // 3. Keep local memory updated instantly so nothing is lost
+          // 3. Keep local data structure updated instantly
           if (allBoards[activeBoardId]) {
             allBoards[activeBoardId][storageKey] = currentRawText;
           }
 
-          // 4. DEBOUNCE THE FORMATTING AND CLOUD SAVE: Wait for a 700ms pause in typing
+          // 4. Run the cloud save after you pause typing
           notesSaveTimeout = setTimeout(() => {
-            const formattedHTML = formatMentionsToHTML(currentRawText);
-            
-            // Only update the DOM if a tag actually changed to completely prevent layout stuttering
-            if (el.innerHTML !== formattedHTML) {
-              el.innerHTML = formattedHTML;
-              
-              // Restore the cursor position flawlessly relative to the text length
-              restoreCursorPosition(el, caretOffset);
-            }
-
             if (typeof saveJournalNotesToCloud === 'function') {
               saveJournalNotesToCloud();
             }
-          }, 700);
+          }, 1000);
         });
       };
 
