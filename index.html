@@ -3951,31 +3951,43 @@
               const fullTagString = match[0]; // e.g., "//geralt//"
               const tagName = match[1].trim();
 
-              // 1. Generate the isolated HTML tag using your formatter logic
-              // We pass the full tag string so our existing function evaluates it perfectly
+              const currentBoard = allBoards[activeBoardId];
+              const activeCards = currentBoard && currentBoard.nodes ? currentBoard.nodes : [];
+              const matchingCard = activeCards.find(n => 
+                (n.title || '').trim().toLowerCase() === tagName.toLowerCase()
+              );
+
+              let htmlContent = '';
+              if (matchingCard) {
+                const imgHTML = matchingCard.img ? `<img src="${matchingCard.img}" class="mention-preview-thumb" style="width:24px; height:24px; border-radius:4px; object-fit:cover; display:inline-block; vertical-align:middle; margin-right:4px;" />` : '';
+                htmlContent = `<span class="mention-tag resolved" contenteditable="false" onclick="event.stopPropagation(); if (typeof jumpToSearchResult === 'function') { jumpToSearchResult('${activeBoardId}', '${matchingCard.id}'); }">${imgHTML}${matchingCard.title}<div class="mention-preview-popover"><span class="mention-preview-title">${matchingCard.title}</span></div></span>&#8203;`;
+              } else {
+                htmlContent = `<span class="mention-tag unresolved" contenteditable="false" onclick="event.stopPropagation(); if (typeof quickCreateCardFromName === 'function') { quickCreateCardFromName('${tagName}'); }">//${tagName}//</span>&#8203;`;
+              }
+
+              // Create temporary node container to build our fragments
               const temporaryContainer = document.createElement('div');
-              temporaryContainer.innerHTML = formatMentionsToHTML(fullTagString);
+              temporaryContainer.innerHTML = htmlContent;
               
-              // Extract the newly generated elements out of the temporary wrapper
               const fragment = document.createDocumentFragment();
               while (temporaryContainer.firstChild) {
                 fragment.appendChild(temporaryContainer.firstChild);
               }
 
-              // 2. TARGET STRIP: Move the range selection back to highlight exactly the raw "//name//" text
+              // TARGET STRIP: Lock onto the exact position of the raw text node string lengths
               range.setStart(currentNode, range.startOffset - fullTagString.length);
               range.setEnd(currentNode, range.startOffset);
               
-              // 3. Delete only the raw characters and place the fresh tag right there inline
+              // Cleanly erase the entire raw text block and deposit the rich fragment
               range.deleteContents();
               range.insertNode(fragment);
 
-              // 4. PLACE CARET: Move cursor to the clean text node anchor right after the tag structure
-              range.collapse(false); // Collapses the range to the end of the inserted fragments
+              // PLACE CARET: Securely drop cursor right into the escape hatch space node trailing the card
+              range.collapse(false); 
               selection.removeAllRanges();
               selection.addRange(range);
 
-              // 5. Sync the unified text baseline back to local memory storage cleanly
+              // Sync the unified text baseline back to local memory storage cleanly
               let intactRawText = "";
               el.childNodes.forEach(node => {
                 if (node.nodeType === Node.TEXT_NODE) {
