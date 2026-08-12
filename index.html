@@ -3938,108 +3938,56 @@
         el.addEventListener('input', (e) => {
           clearTimeout(notesSaveTimeout);
 
+          // 1. Instantly capture the text baseline using the cursor position tracking engine
           const selection = window.getSelection();
+          let caretOffset = 0;
+          
           if (selection.rangeCount > 0) {
             const range = selection.getRangeAt(0);
-            const currentNode = range.startContainer;
-            const textBeforeCursor = currentNode.textContent.substring(0, range.startOffset);
-
-            // Match the end of the text node for a closed slash tag
-            const match = textBeforeCursor.match(/\/\/([^\/]+)\/\/$/);
-
-            if (match) {
-              const fullTagString = match[0]; // e.g., "//geralt//"
-              const tagName = match[1].trim();
-
-              const currentBoard = allBoards[activeBoardId];
-              const activeCards = currentBoard && currentBoard.nodes ? currentBoard.nodes : [];
-              const matchingCard = activeCards.find(n => 
-                (n.title || '').trim().toLowerCase() === tagName.toLowerCase()
-              );
-
-              let htmlContent = '';
-              if (matchingCard) {
-                const imgHTML = matchingCard.img ? `<img src="${matchingCard.img}" class="mention-preview-thumb" style="width:24px; height:24px; border-radius:4px; object-fit:cover; display:inline-block; vertical-align:middle; margin-right:4px;" />` : '';
-                htmlContent = `<span class="mention-tag resolved" contenteditable="false" onclick="event.stopPropagation(); if (typeof jumpToSearchResult === 'function') { jumpToSearchResult('${activeBoardId}', '${matchingCard.id}'); }">${imgHTML}${matchingCard.title}<div class="mention-preview-popover"><span class="mention-preview-title">${matchingCard.title}</span></div></span>&#8203;`;
-              } else {
-                htmlContent = `<span class="mention-tag unresolved" contenteditable="false" onclick="event.stopPropagation(); if (typeof quickCreateCardFromName === 'function') { quickCreateCardFromName('${tagName}'); }">//${tagName}//</span>&#8203;`;
-              }
-
-              // Create temporary node container to build our fragments
-              const temporaryContainer = document.createElement('div');
-              temporaryContainer.innerHTML = htmlContent;
-              
-              const fragment = document.createDocumentFragment();
-              while (temporaryContainer.firstChild) {
-                fragment.appendChild(temporaryContainer.firstChild);
-              }
-
-              // TARGET STRIP: Lock onto the exact position of the raw text node string lengths
-              range.setStart(currentNode, range.startOffset - fullTagString.length);
-              range.setEnd(currentNode, range.startOffset);
-              
-              // Cleanly erase the entire raw text block and deposit the rich fragment
-              range.deleteContents();
-              range.insertNode(fragment);
-
-              // PLACE CARET: Securely drop cursor right into the escape hatch space node trailing the card
-              range.collapse(false); 
-              selection.removeAllRanges();
-              selection.addRange(range);
-
-              // Sync the unified text baseline back to local memory storage cleanly
-              let intactRawText = "";
-              el.childNodes.forEach(node => {
-                if (node.nodeType === Node.TEXT_NODE) {
-                  intactRawText += node.textContent;
-                } else if (node.nodeType === Node.ELEMENT_NODE) {
-                  if (node.classList.contains('mention-tag')) {
-                    const cleanName = node.innerText.replace(/\/\//g, '').trim();
-                    intactRawText += `//${cleanName}//`;
-                  } else if (node.tagName === 'BR') {
-                    intactRawText += '\n';
-                  } else {
-                    intactRawText += node.innerText;
-                  }
-                }
-              });
-
-              if (allBoards[activeBoardId]) {
-                allBoards[activeBoardId][storageKey] = intactRawText;
-              }
-
-              // Trigger Cloud Save execution
-              notesSaveTimeout = setTimeout(() => {
-                if (typeof saveJournalNotesToCloud === 'function') saveJournalNotesToCloud();
-              }, 1000);
-
-              return;
-            }
+            const preCaretRange = range.cloneRange();
+            preCaretRange.selectNodeContents(el);
+            preCaretRange.setEnd(range.endContainer, range.endOffset);
+            caretOffset = preCaretRange.toString().length;
           }
 
-          // Standard background layout memory pass (for regular text editing typing chunks)
-          if (allBoards[activeBoardId]) {
-            let currentRawText = "";
-            el.childNodes.forEach(node => {
-              if (node.nodeType === Node.TEXT_NODE) currentRawText += node.textContent;
-              else if (node.nodeType === Node.ELEMENT_NODE) {
-                if (node.classList.contains('mention-tag')) {
-                  const cleanName = node.innerText.replace(/\/\//g, '').trim();
-                  currentRawText += `//${cleanName}//`;
-                } else if (node.tagName === 'BR') {
-                  currentRawText += '\n';
-                } else {
-                  currentRawText += node.innerText;
-                }
+          // 2. Reconstruct the clean, raw string structure
+          let currentRawText = "";
+          el.childNodes.forEach(node => {
+            if (node.nodeType === Node.TEXT_NODE) {
+              currentRawText += node.textContent;
+            } else if (node.nodeType === Node.ELEMENT_NODE) {
+              if (node.classList.contains('mention-tag')) {
+                const cleanName = node.innerText.replace(/\/\//g, '').trim();
+                currentRawText += `//${cleanName}//`;
+              } else if (node.tagName === 'BR') {
+                currentRawText += '\n';
+              } else {
+                currentRawText += node.innerText;
               }
-            });
+            }
+          });
+
+          // 3. Keep local memory updated instantly so nothing is lost
+          if (allBoards[activeBoardId]) {
             allBoards[activeBoardId][storageKey] = currentRawText;
           }
 
-          // Trigger Cloud Save for normal text changes
+          // 4. DEBOUNCE THE FORMATTING AND CLOUD SAVE: Wait for a 700ms pause in typing
           notesSaveTimeout = setTimeout(() => {
-            if (typeof saveJournalNotesToCloud === 'function') saveJournalNotesToCloud();
-          }, 1000);
+            const formattedHTML = formatMentionsToHTML(currentRawText);
+            
+            // Only update the DOM if a tag actually changed to completely prevent layout stuttering
+            if (el.innerHTML !== formattedHTML) {
+              el.innerHTML = formattedHTML;
+              
+              // Restore the cursor position flawlessly relative to the text length
+              restoreCursorPosition(el, caretOffset);
+            }
+
+            if (typeof saveJournalNotesToCloud === 'function') {
+              saveJournalNotesToCloud();
+            }
+          }, 700);
         });
       };
 
