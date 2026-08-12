@@ -2713,9 +2713,11 @@
         if (matchingCard) {
           const imgHTML = matchingCard.img ? `<img src="${matchingCard.img}" class="mention-preview-thumb" style="width:24px; height:24px; border-radius:4px; object-fit:cover; display:inline-block; vertical-align:middle; margin-right:4px;" />` : '';
           
-          return `<span class="mention-tag resolved" onclick="event.stopPropagation(); if (typeof jumpToSearchResult === 'function') { jumpToSearchResult('${activeBoardId}', '${matchingCard.id}'); }">${imgHTML}${matchingCard.title}<div class="mention-preview-popover"><span class="mention-preview-title">${matchingCard.title}</span></div></span>&#8203;`;
+          // REMOVED &#8203; from the end of this string
+          return `<span class="mention-tag resolved" onclick="event.stopPropagation(); if (typeof jumpToSearchResult === 'function') { jumpToSearchResult('${activeBoardId}', '${matchingCard.id}'); }">${imgHTML}${matchingCard.title}<div class="mention-preview-popover"><span class="mention-preview-title">${matchingCard.title}</span></div></span>`;
         } else {
-          return `<span class="mention-tag unresolved" onclick="event.stopPropagation(); if (typeof quickCreateCardFromName === 'function') { quickCreateCardFromName('${cleanName}'); }">//${cleanName}//</span>&#8203;`;
+          // REMOVED &#8203; from the end of this string
+          return `<span class="mention-tag unresolved" onclick="event.stopPropagation(); if (typeof quickCreateCardFromName === 'function') { quickCreateCardFromName('${cleanName}'); }">//${cleanName}//</span>`;
         }
       });
     }
@@ -4195,11 +4197,24 @@
     function addTimestampToNotes() {
       const el = document.getElementById('book-general-content');
       if (!el) return;
+      
       const timestamp = `\n\n--- [${new Date().toLocaleDateString()} - Reading Session] ---\n`;
       
-      el.innerText += timestamp;
-      allBoards[activeBoardId].generalNote = el.innerText;
+      // 1. Get the current raw text directly from the database structure (or default to empty string)
+      let currentRawText = allBoards[activeBoardId].generalNote || '';
       
+      // 2. Append the timestamp to the RAW source string (preserving all your // // tags!)
+      currentRawText += timestamp;
+      allBoards[activeBoardId].generalNote = currentRawText;
+      
+      // 3. Re-render the visual display with your tags safely parsed and updated
+      if (typeof formatMentionsToHTML === 'function') {
+        el.innerHTML = formatMentionsToHTML(currentRawText);
+      } else {
+        el.innerText = currentRawText;
+      }
+      
+      // 4. Move the cursor smoothly to the end of the contenteditable area
       el.focus();
       const range = document.createRange();
       const sel = window.getSelection();
@@ -4208,6 +4223,7 @@
       sel.removeAllRanges();
       sel.addRange(range);
       
+      // 5. Commit changes to your storage pipeline
       if (typeof saveData === 'function') saveData();
     }
 
