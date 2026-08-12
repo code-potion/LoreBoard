@@ -3066,14 +3066,17 @@
             makeDraggable(card, node);
           }
 
+          // Unified cross-browser click tracker
           card.addEventListener('click', (e) => {
             e.stopPropagation();
-            if (typeof toggleSelectNode === 'function') toggleSelectNode(node.id);
-          });
-
-          card.addEventListener('dblclick', (e) => {
-            e.stopPropagation();
-            if (typeof openEditModal === 'function') openEditModal(node.id);
+            
+            if (e.detail === 1) {
+              // Single Click: Toggle card selection
+              if (typeof toggleSelectNode === 'function') toggleSelectNode(node.id);
+            } else if (e.detail === 2) {
+              // Double Click: Open Edit Modal
+              if (typeof openEditModal === 'function') openEditModal(node.id);
+            }
           });
 
           canvas.appendChild(card);
