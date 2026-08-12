@@ -2030,9 +2030,11 @@
     }
 
     /* --- INITIALIZATION --- */
+
     window.addEventListener('DOMContentLoaded', async () => {
       await initDB();
 
+      // 1. Try to load local storage fallback first (so the app isn't blank while loading)
       const loadedCats = await dbGet(CAT_STORAGE_KEY);
       if (loadedCats) categories = loadedCats;
 
@@ -2067,18 +2069,19 @@
         });
       });
 
+      // 2. Render initial local fallback layout
       renderBoardDropdown();
       populateCategorySelects();
       setupPanZoom();
       setupMapPanZoom();
       renderBoard();
       loadBookNotesIntoPanel();
-    });
 
-    async function saveData() {
-      await dbSet(STORAGE_KEY, allBoards);
-      await dbSet(CAT_STORAGE_KEY, categories);
-    }
+      // 3. IMMEDIATELY fetch fresh data from Supabase to override local cache
+      if (typeof loadUserDataFromSupabase === 'function') {
+        await loadUserDataFromSupabase();
+      }
+    });
 
     /* --- BOARD SWITCHING & RENAMING MANAGEMENT --- */
     function renderBoardDropdown() {
@@ -2387,8 +2390,11 @@
         });
     
         // 6. Finalize UI State
-        activeBoardId = boardsData[0].id;
+        if (boardsData && boardsData.length > 0) {
+          activeBoardId = boardsData[0].id;
+        }
 
+        // Synchronize and apply pure category collections from cloud row returns
         if (categoriesData && categoriesData.length > 0) {
           const activeBoardCategories = categoriesData.filter(cat => String(cat.board_id).trim() === String(activeBoardId).trim());
           if (activeBoardCategories.length > 0) {
@@ -2401,6 +2407,7 @@
         }
     
         renderBoardDropdown();
+        if (typeof populateCategorySelects === 'function') populateCategorySelects();
         if (typeof renderBoard === 'function') renderBoard();
         if (typeof loadBookNotesIntoPanel === 'function') loadBookNotesIntoPanel();
         if (typeof renderMap === 'function') renderMap();
@@ -2420,7 +2427,7 @@
 
         if (typeof setupNotesAutoSaveListeners === 'function') setupNotesAutoSaveListeners(); 
       
-        console.log("Successfully loaded everything (Groups & Timelines included)!");
+        console.log("Successfully loaded everything (Categories synchronized)!");
 
         setTimeout(() => {
           if (typeof renderConnections === 'function') renderConnections();
