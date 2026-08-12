@@ -3895,11 +3895,36 @@
     let notesSaveTimeout = null;
     
     function setupNotesAutoSaveListeners() {
+      // Helper function to safely extract plain text and newlines without browser node leaks
+      const getCleanRawText = (container) => {
+        const clone = container.cloneNode(true);
+        
+        // 1. Turn all span elements into flat raw tag strings inside the clone
+        clone.querySelectorAll('.mention-tag-simple').forEach(span => {
+          const tagName = span.getAttribute('data-tag-name') || span.textContent;
+          const cleanName = tagName.replace(/\/\//g, '').trim();
+          span.replaceWith(`//${cleanName}//`);
+        });
+
+        // 2. Explicitly map line breaks (<br>) to newline characters
+        clone.querySelectorAll('br').forEach(br => br.replaceWith('\n'));
+        
+        // 3. Handle line block elements (div, p) by adding layout newlines
+        clone.querySelectorAll('div, p').forEach(block => {
+          if (block.previousSibling) {
+            block.insertBefore(document.createTextNode('\n'), block.firstChild);
+          }
+        });
+
+        // 4. Extract total text content and clean up zero-width space characters (\u200B)
+        return clone.textContent.replace(/\u200B/g, '').trim();
+      };
+
       const bindContainer = (elementId, storageKey) => {
         const el = document.getElementById(elementId);
         if (!el) return;
-    
-        // Direct parent level event capture to execute card clicks reliably
+
+        // Parent level click delegation for bulletproof quick-create links
         el.removeEventListener('click', el._mentionClickHandler);
         el._mentionClickHandler = (event) => {
           const target = event.target.closest('.mention-tag-simple');
@@ -3922,35 +3947,35 @@
           }
         };
         el.addEventListener('click', el._mentionClickHandler);
-    
+
         el.addEventListener('input', (e) => {
           clearTimeout(notesSaveTimeout);
-    
+
           const selection = window.getSelection();
           if (selection.rangeCount > 0) {
             const range = selection.getRangeAt(0);
             const currentNode = range.startContainer;
             const textBeforeCursor = currentNode.textContent.substring(0, range.startOffset);
-    
+
             const match = textBeforeCursor.match(/\/\/([^\/]+)\/\/$/);
-    
+
             if (match) {
               const fullTagString = match[0]; 
               const tagName = match[1].trim();
-    
+
               const currentBoard = allBoards[activeBoardId];
               const activeCards = currentBoard && currentBoard.nodes ? currentBoard.nodes : [];
               const matchingCard = activeCards.find(n => 
                 (n.title || '').trim().toLowerCase() === tagName.toLowerCase()
               );
-    
+
               let htmlContent = '';
               if (matchingCard) {
                 htmlContent = `<span class="mention-tag-simple resolved" contenteditable="false" data-board-id="${activeBoardId}" data-card-id="${matchingCard.id}" style="color: #4fa3ff; text-decoration: underline; cursor: pointer; display: inline-block;">${matchingCard.title}</span>&#8203;`;
               } else {
                 htmlContent = `<span class="mention-tag-simple unresolved" contenteditable="false" data-tag-name="${tagName}" style="color: #aaaaaa; text-decoration: dashed underline; cursor: pointer; display: inline-block;">${tagName}</span>&#8203;`;
               }
-    
+
               const temporaryContainer = document.createElement('div');
               temporaryContainer.innerHTML = htmlContent;
               
@@ -3958,50 +3983,32 @@
               while (temporaryContainer.firstChild) {
                 fragment.appendChild(temporaryContainer.firstChild);
               }
-    
+
               range.setStart(currentNode, range.startOffset - fullTagString.length);
               range.setEnd(currentNode, range.startOffset);
               range.deleteContents();
               
               range.insertNode(fragment);
-    
+
               range.collapse(false); 
               selection.removeAllRanges();
               selection.addRange(range);
             }
           }
-    
-          // Safe clean text-extraction baseline mapping
-          let currentRawText = "";
-          el.childNodes.forEach(node => {
-            if (node.nodeType === Node.TEXT_NODE) {
-              currentRawText += node.textContent;
-            } else if (node.nodeType === Node.ELEMENT_NODE) {
-              if (node.classList.contains('mention-tag-simple')) {
-                const nameVal = node.getAttribute('data-tag-name') || node.innerText;
-                const cleanText = nameVal.replace(/\/\//g, '').trim();
-                currentRawText += `//${cleanText}//`;
-              } else if (node.tagName === 'BR') {
-                currentRawText += '\n';
-              } else {
-                currentRawText += node.innerText;
-              }
-            }
-          });
-    
-          // Regular Expression to parse and split out duplicate stacked text nodes cleanly
-          currentRawText = currentRawText.replace(/([^/]+)(\/\/\1\/\/)/gi, '$2');
-    
+
+          // Extract using the clean flattener function
+          const currentRawText = getCleanRawText(el);
+
           if (allBoards[activeBoardId]) {
             allBoards[activeBoardId][storageKey] = currentRawText;
           }
-    
+
           notesSaveTimeout = setTimeout(() => {
             if (typeof saveJournalNotesToCloud === 'function') saveJournalNotesToCloud();
           }, 1000);
         });
       };
-    
+
       bindContainer('book-quotes-content', 'quotesNote');
       bindContainer('book-general-content', 'generalNote');
     }
