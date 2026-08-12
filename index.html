@@ -3948,15 +3948,14 @@
                 (n.title || '').trim().toLowerCase() === tagName.toLowerCase()
               );
 
-              // Build a lightweight, flat text link structure (No images, no block elements)
+              // Added style="pointer-events: auto;" to force clicks to work inside contenteditable fields
               let htmlContent = '';
               if (matchingCard) {
-                htmlContent = `<span class="mention-tag-simple resolved" contenteditable="false" style="color: #4fa3ff; text-decoration: underline; cursor: pointer;" onclick="event.stopPropagation(); if (typeof jumpToSearchResult === 'function') { jumpToSearchResult('${activeBoardId}', '${matchingCard.id}'); }">${matchingCard.title}</span>&#8203;`;
+                htmlContent = `<span class="mention-tag-simple resolved" contenteditable="false" style="color: #4fa3ff; text-decoration: underline; cursor: pointer; pointer-events: auto; display: inline-block;" onclick="event.stopPropagation(); if (typeof jumpToSearchResult === 'function') { jumpToSearchResult('${activeBoardId}', '${matchingCard.id}'); }">${matchingCard.title}</span>&#8203;`;
               } else {
-                htmlContent = `<span class="mention-tag-simple unresolved" contenteditable="false" style="color: #aaaaaa; text-decoration: dashed underline; cursor: pointer;" onclick="event.stopPropagation(); if (typeof quickCreateCardFromName === 'function') { quickCreateCardFromName('${tagName}'); }">${tagName}</span>&#8203;`;
+                htmlContent = `<span class="mention-tag-simple unresolved" contenteditable="false" style="color: #aaaaaa; text-decoration: dashed underline; cursor: pointer; pointer-events: auto; display: inline-block;" onclick="event.stopPropagation(); if (typeof quickCreateCardFromName === 'function') { quickCreateCardFromName('${tagName}'); }">${tagName}</span>&#8203;`;
               }
 
-              // Create temporary container to turn HTML string into DOM nodes
               const temporaryContainer = document.createElement('div');
               temporaryContainer.innerHTML = htmlContent;
               
@@ -3965,62 +3964,52 @@
                 fragment.appendChild(temporaryContainer.firstChild);
               }
 
-              // Target and delete exactly the raw "//tag//" text string lengths
+              // Safely wipe out the exact characters typed
               range.setStart(currentNode, range.startOffset - fullTagString.length);
               range.setEnd(currentNode, range.startOffset);
               range.deleteContents();
               
-              // Insert the flat text element smoothly
               range.insertNode(fragment);
 
-              // Move caret directly behind the text element onto the zero-width spacer
+              // Move caret directly onto the spacer behind the element cleanly
               range.collapse(false); 
               selection.removeAllRanges();
               selection.addRange(range);
-
-              // Sync unified string data layout instantly to memory baseline
-              let intactRawText = "";
-              el.childNodes.forEach(node => {
-                if (node.nodeType === Node.TEXT_NODE) {
-                  intactRawText += node.textContent;
-                } else if (node.nodeType === Node.ELEMENT_NODE) {
-                  if (node.classList.contains('mention-tag-simple')) {
-                    intactRawText += `//${node.innerText}//`;
-                  } else if (node.tagName === 'BR') {
-                    intactRawText += '\n';
-                  } else {
-                    intactRawText += node.innerText;
-                  }
-                }
-              });
-
-              if (allBoards[activeBoardId]) {
-                allBoards[activeBoardId][storageKey] = intactRawText;
-              }
-
-              notesSaveTimeout = setTimeout(() => {
-                if (typeof saveJournalNotesToCloud === 'function') saveJournalNotesToCloud();
-              }, 1000);
-
-              return;
             }
           }
 
-          // Standard background layout sync passes
-          if (allBoards[activeBoardId]) {
-            let currentRawText = "";
-            el.childNodes.forEach(node => {
-              if (node.nodeType === Node.TEXT_NODE) currentRawText += node.textContent;
-              else if (node.nodeType === Node.ELEMENT_NODE) {
-                if (node.classList.contains('mention-tag-simple')) {
-                  currentRawText += `//${node.innerText}//`;
-                } else if (node.tagName === 'BR') {
-                  currentRawText += '\n';
-                } else {
-                  currentRawText += node.innerText;
-                }
+          // CLEAN STRING PARSER: Cleanly extract the text baseline without grabbing orphaned nodes
+          let currentRawText = "";
+          let skipNextTextNode = false;
+
+          el.childNodes.forEach(node => {
+            if (node.nodeType === Node.TEXT_NODE) {
+              let text = node.textContent;
+              // If we just processed a tag, wipe out any duplicate trailing slashes left over in the text block
+              if (skipNextTextNode) {
+                text = text.replace(/^(\/\/.*?\/|\/\/)/g, '');
+                skipNextTextNode = false;
               }
-            });
+              currentRawText += text;
+            } else if (node.nodeType === Node.ELEMENT_NODE) {
+              if (node.classList.contains('mention-tag-simple')) {
+                const cleanText = node.innerText.replace(/\/\//g, '').trim();
+                currentRawText += `//${cleanText}//`;
+                skipNextTextNode = true; // Block subsequent text nodes from appending duplicated slashes
+              } else if (node.tagName === 'BR') {
+                currentRawText += '\n';
+                skipNextTextNode = false;
+              } else {
+                currentRawText += node.innerText;
+                skipNextTextNode = false;
+              }
+            }
+          });
+
+          // Trim double text leaks out of the final string map
+          currentRawText = currentRawText.replace(/([^/]+)(\/\/\1\/\/)/gi, '$2');
+
+          if (allBoards[activeBoardId]) {
             allBoards[activeBoardId][storageKey] = currentRawText;
           }
 
