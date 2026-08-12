@@ -2428,11 +2428,12 @@
         const initialBoard = allBoards[activeBoardId];
         
         if (initialBoard) {
-          if (quotesEl && typeof formatMentionsToHTML === 'function') {
-            quotesEl.innerHTML = formatMentionsToHTML(initialBoard.quotesNote || '');
+          // CHANGE HERE: Use our flat text parser instead of formatMentionsToHTML!
+          if (quotesEl && typeof parseAndRenderMentions === 'function') {
+            parseAndRenderMentions('book-quotes-content', initialBoard.quotesNote || '');
           }
-          if (generalEl && typeof formatMentionsToHTML === 'function') {
-            generalEl.innerHTML = formatMentionsToHTML(initialBoard.generalNote || '');
+          if (generalEl && typeof parseAndRenderMentions === 'function') {
+            parseAndRenderMentions('book-general-content', initialBoard.generalNote || '');
           }
         }
 
@@ -3883,8 +3884,6 @@
       const activeCards = currentBoard && currentBoard.nodes ? currentBoard.nodes : [];
       
       const escapeHTML = str => str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-      
-      // Update regex to find both old @ formats and our // slash formats safely
       const mentionRegex = /\/\/([^\/]+)\/\/|@\[([^\]]+)\]|@([a-zA-Z0-9_\-]+)/g;
 
       const escapedText = escapeHTML(rawText).replace(/\n/g, '<br>');
@@ -3898,9 +3897,9 @@
         );
 
         if (matchingCard) {
-          return `<span class="mention-tag-simple resolved" contenteditable="false" style="color: #4fa3ff; text-decoration: underline; cursor: pointer;" onclick="event.stopPropagation(); if(typeof jumpToSearchResult === 'function') jumpToSearchResult('${activeBoardId}', '${matchingCard.id}');">${matchingCard.title}</span>&#8203;`;
+          return `<span class="mention-tag-simple resolved" contenteditable="false" data-board-id="${activeBoardId}" data-card-id="${matchingCard.id}" style="color: #4fa3ff; text-decoration: underline; cursor: pointer; display: inline-block;">${matchingCard.title}</span>&#8203;`;
         } else {
-          return `<span class="mention-tag-simple unresolved" contenteditable="false" style="color: #aaaaaa; text-decoration: dashed underline; cursor: pointer;" onclick="event.stopPropagation(); if(typeof quickCreateCardFromName === 'function') quickCreateCardFromName('${name}');">${name}</span>&#8203;`;
+          return `<span class="mention-tag-simple unresolved" contenteditable="false" data-tag-name="${name}" style="color: #aaaaaa; text-decoration: dashed underline; cursor: pointer; display: inline-block;">${name}</span>&#8203;`;
         }
       });
 
@@ -3926,6 +3925,30 @@
         const el = document.getElementById(elementId);
         if (!el) return;
 
+        // CRITICAL FIX: Intercept clicks at the parent level so contenteditable="false" cannot block them
+        el.removeEventListener('click', el._mentionClickHandler);
+        el._mentionClickHandler = (event) => {
+          const target = event.target.closest('.mention-tag-simple');
+          if (target) {
+            event.preventDefault();
+            event.stopPropagation();
+            
+            if (target.classList.contains('resolved')) {
+              const boardId = target.getAttribute('data-board-id');
+              const cardId = target.getAttribute('data-card-id');
+              if (typeof jumpToSearchResult === 'function') {
+                jumpToSearchResult(boardId, cardId);
+              }
+            } else if (target.classList.contains('unresolved')) {
+              const nameAttr = target.getAttribute('data-tag-name');
+              if (typeof quickCreateCardFromName === 'function') {
+                quickCreateCardFromName(nameAttr);
+              }
+            }
+          }
+        };
+        el.addEventListener('click', el._mentionClickHandler);
+
         el.addEventListener('input', (e) => {
           clearTimeout(notesSaveTimeout);
 
@@ -3935,11 +3958,10 @@
             const currentNode = range.startContainer;
             const textBeforeCursor = currentNode.textContent.substring(0, range.startOffset);
 
-            // Match the end of the text node for a closed slash tag
             const match = textBeforeCursor.match(/\/\/([^\/]+)\/\/$/);
 
             if (match) {
-              const fullTagString = match[0]; // e.g., "//geralt//"
+              const fullTagString = match[0]; 
               const tagName = match[1].trim();
 
               const currentBoard = allBoards[activeBoardId];
@@ -3948,12 +3970,11 @@
                 (n.title || '').trim().toLowerCase() === tagName.toLowerCase()
               );
 
-              // Added style="pointer-events: auto;" to force clicks to work inside contenteditable fields
               let htmlContent = '';
               if (matchingCard) {
-                htmlContent = `<span class="mention-tag-simple resolved" contenteditable="false" style="color: #4fa3ff; text-decoration: underline; cursor: pointer; pointer-events: auto; display: inline-block;" onclick="event.stopPropagation(); if (typeof jumpToSearchResult === 'function') { jumpToSearchResult('${activeBoardId}', '${matchingCard.id}'); }">${matchingCard.title}</span>&#8203;`;
+                htmlContent = `<span class="mention-tag-simple resolved" contenteditable="false" data-board-id="${activeBoardId}" data-card-id="${matchingCard.id}" style="color: #4fa3ff; text-decoration: underline; cursor: pointer; display: inline-block;">${matchingCard.title}</span>&#8203;`;
               } else {
-                htmlContent = `<span class="mention-tag-simple unresolved" contenteditable="false" style="color: #aaaaaa; text-decoration: dashed underline; cursor: pointer; pointer-events: auto; display: inline-block;" onclick="event.stopPropagation(); if (typeof quickCreateCardFromName === 'function') { quickCreateCardFromName('${tagName}'); }">${tagName}</span>&#8203;`;
+                htmlContent = `<span class="mention-tag-simple unresolved" contenteditable="false" data-tag-name="${tagName}" style="color: #aaaaaa; text-decoration: dashed underline; cursor: pointer; display: inline-block;">${tagName}</span>&#8203;`;
               }
 
               const temporaryContainer = document.createElement('div');
@@ -3964,49 +3985,37 @@
                 fragment.appendChild(temporaryContainer.firstChild);
               }
 
-              // Safely wipe out the exact characters typed
               range.setStart(currentNode, range.startOffset - fullTagString.length);
               range.setEnd(currentNode, range.startOffset);
               range.deleteContents();
               
               range.insertNode(fragment);
 
-              // Move caret directly onto the spacer behind the element cleanly
               range.collapse(false); 
               selection.removeAllRanges();
               selection.addRange(range);
             }
           }
 
-          // CLEAN STRING PARSER: Cleanly extract the text baseline without grabbing orphaned nodes
+          // Safe text-extraction baseline mapping
           let currentRawText = "";
-          let skipNextTextNode = false;
-
           el.childNodes.forEach(node => {
             if (node.nodeType === Node.TEXT_NODE) {
-              let text = node.textContent;
-              // If we just processed a tag, wipe out any duplicate trailing slashes left over in the text block
-              if (skipNextTextNode) {
-                text = text.replace(/^(\/\/.*?\/|\/\/)/g, '');
-                skipNextTextNode = false;
-              }
-              currentRawText += text;
+              currentRawText += node.textContent;
             } else if (node.nodeType === Node.ELEMENT_NODE) {
               if (node.classList.contains('mention-tag-simple')) {
-                const cleanText = node.innerText.replace(/\/\//g, '').trim();
+                const nameVal = node.getAttribute('data-tag-name') || node.innerText;
+                const cleanText = nameVal.replace(/\/\//g, '').trim();
                 currentRawText += `//${cleanText}//`;
-                skipNextTextNode = true; // Block subsequent text nodes from appending duplicated slashes
               } else if (node.tagName === 'BR') {
                 currentRawText += '\n';
-                skipNextTextNode = false;
               } else {
                 currentRawText += node.innerText;
-                skipNextTextNode = false;
               }
             }
           });
 
-          // Trim double text leaks out of the final string map
+          // Deduplicate accidental overlapping text node additions
           currentRawText = currentRawText.replace(/([^/]+)(\/\/\1\/\/)/gi, '$2');
 
           if (allBoards[activeBoardId]) {
