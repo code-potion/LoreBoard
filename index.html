@@ -3874,7 +3874,7 @@
       if (panel) panel.classList.toggle('open');
     }
 
-    // Safely parse plain text into interactive mention layouts
+    // Safely parse plain text into interactive mention layouts (Lightweight Underline Edition)
     function parseAndRenderMentions(elementId, rawText) {
       const container = document.getElementById(elementId);
       if (!container) return;
@@ -3883,12 +3883,14 @@
       const activeCards = currentBoard && currentBoard.nodes ? currentBoard.nodes : [];
       
       const escapeHTML = str => str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-      const mentionRegex = /@\[([^\]]+)\]|@([a-zA-Z0-9_\-]+)/g;
+      
+      // Update regex to find both old @ formats and our // slash formats safely
+      const mentionRegex = /\/\/([^\/]+)\/\/|@\[([^\]]+)\]|@([a-zA-Z0-9_\-]+)/g;
 
       const escapedText = escapeHTML(rawText).replace(/\n/g, '<br>');
 
-      const processedHTML = escapedText.replace(mentionRegex, (match, bracketName, simpleName) => {
-        const name = (bracketName || simpleName || '').trim();
+      const processedHTML = escapedText.replace(mentionRegex, (match, slashName, bracketName, simpleName) => {
+        const name = (slashName || bracketName || simpleName || '').trim();
         if (!name) return match;
 
         const matchingCard = activeCards.find(n => 
@@ -3896,20 +3898,9 @@
         );
 
         if (matchingCard) {
-          const imgHTML = matchingCard.img ? `<img src="${matchingCard.img}" style="width:40px; height:40px; border-radius:4px; object-fit:cover;" />` : '';
-          
-          return `
-            <span class="mention-wrapper" style="position: relative; display: inline-block;" contenteditable="false">
-              <span class="mention-tag resolved" style="color: #10b981; text-decoration: underline; font-weight: 600; cursor: pointer;" 
-                    onclick="event.stopPropagation(); if(typeof jumpToSearchResult === 'function') jumpToSearchResult('${activeBoardId}', '${matchingCard.id}');">@${matchingCard.title}</span>
-              <div class="mention-preview-hover" style="display: none; position: absolute; bottom: 125%; left: 50%; transform: translateX(-50%); background: #1e293b; border: 1px solid #334155; padding: 8px; border-radius: 6px; z-index: 999; width: 160px; box-shadow: 0 4px 12px rgba(0,0,0,0.5); text-align: center; pointer-events: none;">
-                ${imgHTML}
-                <div style="font-size: 0.8rem; font-weight: 600; color: #f8fafc; margin-top: 4px;">${matchingCard.title}</div>
-              </div>
-            </span>
-          `;
+          return `<span class="mention-tag-simple resolved" contenteditable="false" style="color: #4fa3ff; text-decoration: underline; cursor: pointer;" onclick="event.stopPropagation(); if(typeof jumpToSearchResult === 'function') jumpToSearchResult('${activeBoardId}', '${matchingCard.id}');">${matchingCard.title}</span>&#8203;`;
         } else {
-          return `<span class="mention-tag unresolved" contenteditable="false" style="color: #f59e0b; text-decoration: underline; cursor: pointer;" onclick="event.stopPropagation(); if(typeof quickCreateCardFromName === 'function') quickCreateCardFromName('${name}');">@${name}</span>`;
+          return `<span class="mention-tag-simple unresolved" contenteditable="false" style="color: #aaaaaa; text-decoration: dashed underline; cursor: pointer;" onclick="event.stopPropagation(); if(typeof quickCreateCardFromName === 'function') quickCreateCardFromName('${name}');">${name}</span>&#8203;`;
         }
       });
 
@@ -3938,46 +3929,103 @@
         el.addEventListener('input', (e) => {
           clearTimeout(notesSaveTimeout);
 
-          // 1. Instantly capture text baseline
           const selection = window.getSelection();
-          let caretOffset = 0;
-          
           if (selection.rangeCount > 0) {
             const range = selection.getRangeAt(0);
-            const preCaretRange = range.cloneRange();
-            preCaretRange.selectNodeContents(el);
-            preCaretRange.setEnd(range.endContainer, range.endOffset);
-            caretOffset = preCaretRange.toString().length;
+            const currentNode = range.startContainer;
+            const textBeforeCursor = currentNode.textContent.substring(0, range.startOffset);
+
+            // Match the end of the text node for a closed slash tag
+            const match = textBeforeCursor.match(/\/\/([^\/]+)\/\/$/);
+
+            if (match) {
+              const fullTagString = match[0]; // e.g., "//geralt//"
+              const tagName = match[1].trim();
+
+              const currentBoard = allBoards[activeBoardId];
+              const activeCards = currentBoard && currentBoard.nodes ? currentBoard.nodes : [];
+              const matchingCard = activeCards.find(n => 
+                (n.title || '').trim().toLowerCase() === tagName.toLowerCase()
+              );
+
+              // Build a lightweight, flat text link structure (No images, no block elements)
+              let htmlContent = '';
+              if (matchingCard) {
+                htmlContent = `<span class="mention-tag-simple resolved" contenteditable="false" style="color: #4fa3ff; text-decoration: underline; cursor: pointer;" onclick="event.stopPropagation(); if (typeof jumpToSearchResult === 'function') { jumpToSearchResult('${activeBoardId}', '${matchingCard.id}'); }">${matchingCard.title}</span>&#8203;`;
+              } else {
+                htmlContent = `<span class="mention-tag-simple unresolved" contenteditable="false" style="color: #aaaaaa; text-decoration: dashed underline; cursor: pointer;" onclick="event.stopPropagation(); if (typeof quickCreateCardFromName === 'function') { quickCreateCardFromName('${tagName}'); }">${tagName}</span>&#8203;`;
+              }
+
+              // Create temporary container to turn HTML string into DOM nodes
+              const temporaryContainer = document.createElement('div');
+              temporaryContainer.innerHTML = htmlContent;
+              
+              const fragment = document.createDocumentFragment();
+              while (temporaryContainer.firstChild) {
+                fragment.appendChild(temporaryContainer.firstChild);
+              }
+
+              // Target and delete exactly the raw "//tag//" text string lengths
+              range.setStart(currentNode, range.startOffset - fullTagString.length);
+              range.setEnd(currentNode, range.startOffset);
+              range.deleteContents();
+              
+              // Insert the flat text element smoothly
+              range.insertNode(fragment);
+
+              // Move caret directly behind the text element onto the zero-width spacer
+              range.collapse(false); 
+              selection.removeAllRanges();
+              selection.addRange(range);
+
+              // Sync unified string data layout instantly to memory baseline
+              let intactRawText = "";
+              el.childNodes.forEach(node => {
+                if (node.nodeType === Node.TEXT_NODE) {
+                  intactRawText += node.textContent;
+                } else if (node.nodeType === Node.ELEMENT_NODE) {
+                  if (node.classList.contains('mention-tag-simple')) {
+                    intactRawText += `//${node.innerText}//`;
+                  } else if (node.tagName === 'BR') {
+                    intactRawText += '\n';
+                  } else {
+                    intactRawText += node.innerText;
+                  }
+                }
+              });
+
+              if (allBoards[activeBoardId]) {
+                allBoards[activeBoardId][storageKey] = intactRawText;
+              }
+
+              notesSaveTimeout = setTimeout(() => {
+                if (typeof saveJournalNotesToCloud === 'function') saveJournalNotesToCloud();
+              }, 1000);
+
+              return;
+            }
           }
 
-          // 2. Parse out the raw text string smoothly
-          let currentRawText = "";
-          el.childNodes.forEach(node => {
-            if (node.nodeType === Node.TEXT_NODE) {
-              currentRawText += node.textContent;
-            } else if (node.nodeType === Node.ELEMENT_NODE) {
-              if (node.classList.contains('mention-tag')) {
-                // Keep the raw tag representation safe
-                const cleanName = node.innerText.replace(/\/\//g, '').trim();
-                currentRawText += `//${cleanName}//`;
-              } else if (node.tagName === 'BR') {
-                currentRawText += '\n';
-              } else {
-                currentRawText += node.innerText;
-              }
-            }
-          });
-
-          // 3. Keep local data structure updated instantly
+          // Standard background layout sync passes
           if (allBoards[activeBoardId]) {
+            let currentRawText = "";
+            el.childNodes.forEach(node => {
+              if (node.nodeType === Node.TEXT_NODE) currentRawText += node.textContent;
+              else if (node.nodeType === Node.ELEMENT_NODE) {
+                if (node.classList.contains('mention-tag-simple')) {
+                  currentRawText += `//${node.innerText}//`;
+                } else if (node.tagName === 'BR') {
+                  currentRawText += '\n';
+                } else {
+                  currentRawText += node.innerText;
+                }
+              }
+            });
             allBoards[activeBoardId][storageKey] = currentRawText;
           }
 
-          // 4. Run the cloud save after you pause typing
           notesSaveTimeout = setTimeout(() => {
-            if (typeof saveJournalNotesToCloud === 'function') {
-              saveJournalNotesToCloud();
-            }
+            if (typeof saveJournalNotesToCloud === 'function') saveJournalNotesToCloud();
           }, 1000);
         });
       };
