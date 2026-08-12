@@ -3944,10 +3944,38 @@
             const currentNode = range.startContainer;
             const textBeforeCursor = currentNode.textContent.substring(0, range.startOffset);
 
-            // Check if the user just closed a slash tag block
-            if (/\/\/([^\/]+)\/\/$/.test(textBeforeCursor)) {
+            // Match the end of the text node for a closed slash tag
+            const match = textBeforeCursor.match(/\/\/([^\/]+)\/\/$/);
+
+            if (match) {
+              const fullTagString = match[0]; // e.g., "//geralt//"
+              const tagName = match[1].trim();
+
+              // 1. Generate the isolated HTML tag using your formatter logic
+              // We pass the full tag string so our existing function evaluates it perfectly
+              const temporaryContainer = document.createElement('div');
+              temporaryContainer.innerHTML = formatMentionsToHTML(fullTagString);
               
-              // 1. Reconstruct raw text safely by preserving historical tags
+              // Extract the newly generated elements out of the temporary wrapper
+              const fragment = document.createDocumentFragment();
+              while (temporaryContainer.firstChild) {
+                fragment.appendChild(temporaryContainer.firstChild);
+              }
+
+              // 2. TARGET STRIP: Move the range selection back to highlight exactly the raw "//name//" text
+              range.setStart(currentNode, range.startOffset - fullTagString.length);
+              range.setEnd(currentNode, range.startOffset);
+              
+              // 3. Delete only the raw characters and place the fresh tag right there inline
+              range.deleteContents();
+              range.insertNode(fragment);
+
+              // 4. PLACE CARET: Move cursor to the clean text node anchor right after the tag structure
+              range.collapse(false); // Collapses the range to the end of the inserted fragments
+              selection.removeAllRanges();
+              selection.addRange(range);
+
+              // 5. Sync the unified text baseline back to local memory storage cleanly
               let intactRawText = "";
               el.childNodes.forEach(node => {
                 if (node.nodeType === Node.TEXT_NODE) {
@@ -3964,24 +3992,11 @@
                 }
               });
 
-              // Calculate exact character offset before transforming the DOM text structure
-              const preCaretRange = range.cloneRange();
-              preCaretRange.selectNodeContents(el);
-              preCaretRange.setEnd(range.endContainer, range.endOffset);
-              const caretOffset = preCaretRange.toString().length;
-
-              // 2. Save protected text structure to local data layers
               if (allBoards[activeBoardId]) {
                 allBoards[activeBoardId][storageKey] = intactRawText;
               }
 
-              // 3. Render HTML output layout updates safely
-              el.innerHTML = formatMentionsToHTML(intactRawText);
-
-              // 4. FIX THE JUMP: Restore cursor precisely relative to where you typed the tag!
-              restoreCursorPosition(el, caretOffset);
-
-              // Trigger Cloud Save for immediate tag conversion
+              // Trigger Cloud Save execution
               notesSaveTimeout = setTimeout(() => {
                 if (typeof saveJournalNotesToCloud === 'function') saveJournalNotesToCloud();
               }, 1000);
@@ -3990,7 +4005,7 @@
             }
           }
 
-          // Standard background layout sync passes
+          // Standard background layout memory pass (for regular text editing typing chunks)
           if (allBoards[activeBoardId]) {
             let currentRawText = "";
             el.childNodes.forEach(node => {
@@ -4009,7 +4024,7 @@
             allBoards[activeBoardId][storageKey] = currentRawText;
           }
 
-          // Trigger Cloud Save for normal typing
+          // Trigger Cloud Save for normal text changes
           notesSaveTimeout = setTimeout(() => {
             if (typeof saveJournalNotesToCloud === 'function') saveJournalNotesToCloud();
           }, 1000);
