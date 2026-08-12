@@ -2699,7 +2699,7 @@
       const activeCards = currentBoard && currentBoard.nodes ? currentBoard.nodes : [];
       
       const escapeHTML = str => str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-      const slashRegex = /\/\/([^\/]+)\/\//g;
+      const slashRegex = /\/\/([^\/\n]+)\/\//g; // Fix: Prevent matching across newlines
       const escapedText = escapeHTML(text).replace(/\n/g, '<br>');
     
       return escapedText.replace(slashRegex, (match, name) => {
@@ -2713,11 +2713,11 @@
         if (matchingCard) {
           const imgHTML = matchingCard.img ? `<img src="${matchingCard.img}" class="mention-preview-thumb" style="width:24px; height:24px; border-radius:4px; object-fit:cover; display:inline-block; vertical-align:middle; margin-right:4px;" />` : '';
           
-          // REMOVED &#8203; from the end of this string
-          return `<span class="mention-tag resolved" onclick="event.stopPropagation(); if (typeof jumpToSearchResult === 'function') { jumpToSearchResult('${activeBoardId}', '${matchingCard.id}'); }">${imgHTML}${matchingCard.title}<div class="mention-preview-popover"><span class="mention-preview-title">${matchingCard.title}</span></div></span>`;
+          // Place the escape hatch explicitly outside the tag structure
+          return `<span class="mention-tag resolved" onclick="event.stopPropagation(); if (typeof jumpToSearchResult === 'function') { jumpToSearchResult('${activeBoardId}', '${matchingCard.id}'); }">${imgHTML}${matchingCard.title}<div class="mention-preview-popover"><span class="mention-preview-title">${matchingCard.title}</span></div></span>&#8203;`;
         } else {
-          // REMOVED &#8203; from the end of this string
-          return `<span class="mention-tag unresolved" onclick="event.stopPropagation(); if (typeof quickCreateCardFromName === 'function') { quickCreateCardFromName('${cleanName}'); }">//${cleanName}//</span>`;
+          // Place the escape hatch explicitly outside the tag structure
+          return `<span class="mention-tag unresolved" onclick="event.stopPropagation(); if (typeof quickCreateCardFromName === 'function') { quickCreateCardFromName('${cleanName}'); }">//${cleanName}//</span>&#8203;`;
         }
       });
     }
