@@ -2694,7 +2694,7 @@
 
     /* --- MENTION & HIGHLIGHT ENGINE --- */
     function formatMentionsToHTML(text) {
-      if (!text) return '<br>'; // Return at least one break if empty so the cursor can focus
+      if (!text) return '<br>'; 
       
       const currentBoard = allBoards[activeBoardId];
       const activeCards = currentBoard && currentBoard.nodes ? currentBoard.nodes : [];
@@ -2702,11 +2702,8 @@
       const escapeHTML = str => str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
       const slashRegex = /\/\/([^\/\n]+)\/\//g; 
       
-      // Convert standard newlines to web line breaks
       let escapedText = escapeHTML(text).replace(/\n/g, '<br>');
       
-      // FIX: If the text ends with a newline character, append an extra <br> element 
-      // to act as a layout anchor so the browser doesn't collapse the trailing space!
       if (text.endsWith('\n')) {
         escapedText += '<br>';
       }
@@ -2719,11 +2716,11 @@
           (n.title || '').trim().toLowerCase() === cleanName.toLowerCase()
         );
     
+        // Swapped to match the clean, simple underlined layout exactly
         if (matchingCard) {
-          const imgHTML = matchingCard.img ? `<img src="${matchingCard.img}" class="mention-preview-thumb" style="width:24px; height:24px; border-radius:4px; object-fit:cover; display:inline-block; vertical-align:middle; margin-right:4px;" />` : '';
-          return `<span class="mention-tag resolved" onclick="event.stopPropagation(); if (typeof jumpToSearchResult === 'function') { jumpToSearchResult('${activeBoardId}', '${matchingCard.id}'); }">${imgHTML}${matchingCard.title}<div class="mention-preview-popover"><span class="mention-preview-title">${matchingCard.title}</span></div></span>&#8203;`;
+          return `<span class="mention-tag-simple resolved" contenteditable="false" data-board-id="${activeBoardId}" data-card-id="${matchingCard.id}" style="color: #4fa3ff; text-decoration: underline; cursor: pointer; display: inline-block;">${matchingCard.title}</span>&#8203;`;
         } else {
-          return `<span class="mention-tag unresolved" onclick="event.stopPropagation(); if (typeof quickCreateCardFromName === 'function') { quickCreateCardFromName('${cleanName}'); }">//${cleanName}//</span>&#8203;`;
+          return `<span class="mention-tag-simple unresolved" contenteditable="false" data-tag-name="${cleanName}" style="color: #aaaaaa; text-decoration: dashed underline; cursor: pointer; display: inline-block;">${cleanName}</span>&#8203;`;
         }
       });
     }
@@ -3879,31 +3876,8 @@
     function parseAndRenderMentions(elementId, rawText) {
       const container = document.getElementById(elementId);
       if (!container) return;
-
-      const currentBoard = allBoards[activeBoardId];
-      const activeCards = currentBoard && currentBoard.nodes ? currentBoard.nodes : [];
-      
-      const escapeHTML = str => str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-      const mentionRegex = /\/\/([^\/]+)\/\/|@\[([^\]]+)\]|@([a-zA-Z0-9_\-]+)/g;
-
-      const escapedText = escapeHTML(rawText).replace(/\n/g, '<br>');
-
-      const processedHTML = escapedText.replace(mentionRegex, (match, slashName, bracketName, simpleName) => {
-        const name = (slashName || bracketName || simpleName || '').trim();
-        if (!name) return match;
-
-        const matchingCard = activeCards.find(n => 
-          (n.title || '').trim().toLowerCase() === name.toLowerCase()
-        );
-
-        if (matchingCard) {
-          return `<span class="mention-tag-simple resolved" contenteditable="false" data-board-id="${activeBoardId}" data-card-id="${matchingCard.id}" style="color: #4fa3ff; text-decoration: underline; cursor: pointer; display: inline-block;">${matchingCard.title}</span>&#8203;`;
-        } else {
-          return `<span class="mention-tag-simple unresolved" contenteditable="false" data-tag-name="${name}" style="color: #aaaaaa; text-decoration: dashed underline; cursor: pointer; display: inline-block;">${name}</span>&#8203;`;
-        }
-      });
-
-      container.innerHTML = processedHTML;
+      // Use our unified global formatter to prevent code divergence!
+      container.innerHTML = formatMentionsToHTML(rawText);
     }
 
     function loadBookNotesIntoPanel() {
@@ -3924,8 +3898,8 @@
       const bindContainer = (elementId, storageKey) => {
         const el = document.getElementById(elementId);
         if (!el) return;
-
-        // CRITICAL FIX: Intercept clicks at the parent level so contenteditable="false" cannot block them
+    
+        // Direct parent level event capture to execute card clicks reliably
         el.removeEventListener('click', el._mentionClickHandler);
         el._mentionClickHandler = (event) => {
           const target = event.target.closest('.mention-tag-simple');
@@ -3948,35 +3922,35 @@
           }
         };
         el.addEventListener('click', el._mentionClickHandler);
-
+    
         el.addEventListener('input', (e) => {
           clearTimeout(notesSaveTimeout);
-
+    
           const selection = window.getSelection();
           if (selection.rangeCount > 0) {
             const range = selection.getRangeAt(0);
             const currentNode = range.startContainer;
             const textBeforeCursor = currentNode.textContent.substring(0, range.startOffset);
-
+    
             const match = textBeforeCursor.match(/\/\/([^\/]+)\/\/$/);
-
+    
             if (match) {
               const fullTagString = match[0]; 
               const tagName = match[1].trim();
-
+    
               const currentBoard = allBoards[activeBoardId];
               const activeCards = currentBoard && currentBoard.nodes ? currentBoard.nodes : [];
               const matchingCard = activeCards.find(n => 
                 (n.title || '').trim().toLowerCase() === tagName.toLowerCase()
               );
-
+    
               let htmlContent = '';
               if (matchingCard) {
                 htmlContent = `<span class="mention-tag-simple resolved" contenteditable="false" data-board-id="${activeBoardId}" data-card-id="${matchingCard.id}" style="color: #4fa3ff; text-decoration: underline; cursor: pointer; display: inline-block;">${matchingCard.title}</span>&#8203;`;
               } else {
                 htmlContent = `<span class="mention-tag-simple unresolved" contenteditable="false" data-tag-name="${tagName}" style="color: #aaaaaa; text-decoration: dashed underline; cursor: pointer; display: inline-block;">${tagName}</span>&#8203;`;
               }
-
+    
               const temporaryContainer = document.createElement('div');
               temporaryContainer.innerHTML = htmlContent;
               
@@ -3984,20 +3958,20 @@
               while (temporaryContainer.firstChild) {
                 fragment.appendChild(temporaryContainer.firstChild);
               }
-
+    
               range.setStart(currentNode, range.startOffset - fullTagString.length);
               range.setEnd(currentNode, range.startOffset);
               range.deleteContents();
               
               range.insertNode(fragment);
-
+    
               range.collapse(false); 
               selection.removeAllRanges();
               selection.addRange(range);
             }
           }
-
-          // Safe text-extraction baseline mapping
+    
+          // Safe clean text-extraction baseline mapping
           let currentRawText = "";
           el.childNodes.forEach(node => {
             if (node.nodeType === Node.TEXT_NODE) {
@@ -4014,60 +3988,58 @@
               }
             }
           });
-
-          // Deduplicate accidental overlapping text node additions
+    
+          // Regular Expression to parse and split out duplicate stacked text nodes cleanly
           currentRawText = currentRawText.replace(/([^/]+)(\/\/\1\/\/)/gi, '$2');
-
+    
           if (allBoards[activeBoardId]) {
             allBoards[activeBoardId][storageKey] = currentRawText;
           }
-
+    
           notesSaveTimeout = setTimeout(() => {
             if (typeof saveJournalNotesToCloud === 'function') saveJournalNotesToCloud();
           }, 1000);
         });
       };
-
+    
       bindContainer('book-quotes-content', 'quotesNote');
       bindContainer('book-general-content', 'generalNote');
     }
 
     async function fetchJournalNotes(boardId) {
       try {
-        // FIXED: Swapped to supabaseClient and matched the exact 'Journal' table name capitalization
         const { data, error } = await supabaseClient
           .from('Journal') 
           .select('quotes_note, general_note')
           .eq('board_id', boardId)
-          .maybeSingle(); // Handles case where a board doesn't have journal entries yet
+          .maybeSingle();
     
         if (error) throw error;
     
-        // Grab the containers
         const quotesEl = document.getElementById('book-quotes-content');
         const generalEl = document.getElementById('book-general-content');
     
         if (data) {
-          // 1. Sync local memory state
           if (allBoards[boardId]) {
             allBoards[boardId].quotesNote = data.quotes_note || '';
             allBoards[boardId].generalNote = data.general_note || '';
           }
     
-          // 2. Safely render into the editor panels with active tags handled
           if (quotesEl) quotesEl.innerHTML = formatMentionsToHTML(data.quotes_note || '');
           if (generalEl) generalEl.innerHTML = formatMentionsToHTML(data.general_note || '');
         } else {
-          // Clean baseline if it's a completely new board layout
           if (quotesEl) quotesEl.innerHTML = '';
           if (generalEl) generalEl.innerHTML = '';
           
-          // Reset local memory baseline too
           if (allBoards[boardId]) {
             allBoards[boardId].quotesNote = '';
             allBoards[boardId].generalNote = '';
           }
         }
+    
+        // CRITICAL: Re-initialize auto-save and active click listeners once data is populated
+        if (typeof setupNotesAutoSaveListeners === 'function') setupNotesAutoSaveListeners();
+    
       } catch (err) {
         console.error('Error loading journal notes from Supabase:', err.message);
       }
