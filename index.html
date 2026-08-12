@@ -3964,40 +3964,22 @@
                 }
               });
 
+              // Calculate exact character offset before transforming the DOM text structure
+              const preCaretRange = range.cloneRange();
+              preCaretRange.selectNodeContents(el);
+              preCaretRange.setEnd(range.endContainer, range.endOffset);
+              const caretOffset = preCaretRange.toString().length;
+
               // 2. Save protected text structure to local data layers
               if (allBoards[activeBoardId]) {
                 allBoards[activeBoardId][storageKey] = intactRawText;
               }
 
-              // 3. Render HTML output layout updates
+              // 3. Render HTML output layout updates safely
               el.innerHTML = formatMentionsToHTML(intactRawText);
 
-              // 4. FIX THE JUMP: Precision Inline Caret Placement
-              const newRange = document.createRange();
-              const newSel = window.getSelection();
-              
-              // Helper to find the absolute deepest final text node present
-              function getLastTextNode(node) {
-                if (node.nodeType === Node.TEXT_NODE) return node;
-                for (let i = node.childNodes.length - 1; i >= 0; i--) {
-                  const deepest = getLastTextNode(node.childNodes[i]);
-                  if (deepest) return deepest;
-                }
-                return null;
-              }
-
-              const lastTextNode = getLastTextNode(el);
-
-              if (lastTextNode) {
-                newRange.setStart(lastTextNode, lastTextNode.length);
-                newRange.collapse(true);
-              } else {
-                newRange.selectNodeContents(el);
-                newRange.collapse(false);
-              }
-
-              newSel.removeAllRanges();
-              newSel.addRange(newRange);
+              // 4. FIX THE JUMP: Restore cursor precisely relative to where you typed the tag!
+              restoreCursorPosition(el, caretOffset);
 
               // Trigger Cloud Save for immediate tag conversion
               notesSaveTimeout = setTimeout(() => {
